@@ -156,6 +156,9 @@ The project follows a decoupled, service-oriented architecture:
 ### 4. Theme Support
 
 - Instant toggling between Light and Dark themes via `next-themes` and CSS design tokens.
+
+
+### 5. Sample Images
 <img width="576" height="1280" alt="WhatsApp Image 2026-11-01 at 12 05 29 AM" src="https://github.com/user-attachments/assets/630fef5f-f5be-4d10-8a9a-a84c47f20596" />
 <img width="576" height="1280" alt="WhatsApp Image 2026-11-01 at 12 05 35 AM" src="https://github.com/user-attachments/assets/627a0c01-3c5a-4531-9b62-718df4849552" />
 <img width="576" height="1280" alt="WhatsApp Image 2026-11-01 at 12 05 34 AM" src="https://github.com/user-attachments/assets/d1d60ca8-0e47-4a7f-b4ad-88f0d67b2223" />
@@ -174,3 +177,7 @@ The project follows a decoupled, service-oriented architecture:
 <img width="1909" height="920" alt="Screenshot_419" src="https://github.com/user-attachments/assets/e5e89837-2f3f-4782-b392-111a6d4f6ccb" />
 <img width="1907" height="921" alt="Screenshot_418" src="https://github.com/user-attachments/assets/7f144672-5da9-4cc8-a5fc-944e957479ff" />
 <img width="1919" height="921" alt="Screenshot_417" src="https://github.com/user-attachments/assets/fd546964-9505-44ef-9788-da02b9563cf5" />
+
+### 6. Demo Credentials
+- Email: nafis@gmail.com
+- Password: qwtef12376e
