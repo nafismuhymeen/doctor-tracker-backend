@@ -8,9 +8,20 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "openapi:export": "tsx src/scripts/export-openapi.ts",
+    "benchmark:dashboard": "tsx src/scripts/benchmark-dashboard.ts",
+    "seed:demo": "tsx src/scripts/seed-demo.ts",
     "seed:admin": "tsx src/scripts/seed-admin.ts",
     "seed:data": "tsx src/scripts/seed-data.ts",
-    "seed": "tsx src/scripts/seed-admin.ts && tsx src/scripts/seed-data.ts"
+    "seed": "tsx src/scripts/seed-admin.ts && tsx src/scripts/seed-data.ts",
+    "backfill:doctors": "tsx src/scripts/backfill-doctors.ts",
+    "migrate:users": "tsx src/scripts/migrate-admins-to-users.ts"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
@@ -18,10 +29,14 @@
     "cors": "^2.8.6",
     "dotenv": "^18.0.9",
     "express": "^5.3.0",
+    "express-rate-limit": "^8.7.3",
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
+    "luxon": "^3.7.2",
     "mongoose": "^9.11.4",
-    "morgan": "^1.12.1",
+    "pino": "^10.4.0",
+    "pino-http": "^11.0.0",
+    "swagger-ui-express": "^5.0.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -30,9 +45,21 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
-    "@types/morgan": "^1.9.10",
+    "@types/luxon": "^3.7.6",
     "@types/node": "^26.6.6",
+    "@types/pino-http": "^6.1.0",
+    "@types/supertest": "^7.2.1",
+    "@types/swagger-ui-express": "^4.1.8",
+    "@vitest/coverage-v8": "^5.1.0",
+    "eslint": "^10.14.0",
+    "mongodb-memory-server": "^11.3.0",
+    "pino-pretty": "^13.2.0",
+    "prettier": "^3.9.10",
+    "supertest": "^7.3.2",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "typescript": "5.8.2",
+    "typescript-eslint": "^8.72.2",
+    "vite": "^8.3.7",
+    "vitest": "^5.1.0"
   }
 }

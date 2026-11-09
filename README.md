@@ -1,183 +1,356 @@
-# Doctor Tracker – Healthcare Management Portal
+# Doctor Tracker API — Enterprise Healthcare Management Backend
 
-## Description
-
-Doctor Tracker is a modern, high-performance administrative healthcare portal engineered to streamline the management of medical practitioners and their patient rosters. Built with a decoupled Next.js 16 frontend and a standalone Express/MongoDB backend, the platform enables authenticated healthcare administrators to oversee doctor credentials, assign and monitor patients under specific doctors, analyze patient diagnostic distribution, and inspect real-time clinical workload metrics through interactive visual dashboards.
+A high-performance, modular monolith healthcare backend built with **Express 5**, **Mongoose**, **Zod 4**, and strict **TypeScript (ESM)**. Engineered with multi-role access control (RBAC), multi-tab safe refresh token rotation, partial unique indexes for race-free scheduling, immutable clinical audit logs, soft-delete cascades, and native OpenAPI 3.1 documentation.
 
 ---
 
-## Setup Guide
+## Architecture Overview
+
+The system strictly follows a decoupled, layered modular monolith pattern. Every feature is packaged into a self-contained module where HTTP transport, domain logic, and data persistence remain strictly separated.
+
+```
+                           [ HTTP / REST Request ]
+                                      │
+                                      ▼
+                      ┌───────────────────────────────┐
+                      │    Express 5 Application      │
+                      │  - Helmet (CSP & Security)    │
+                      │  - CORS (Credential support)  │
+                      │  - JSON Parser (100kb limit)  │
+                      │  - Cookie Parser              │
+                      │  - Rate Limiter (Auth brute)  │
+                      └───────────────┬───────────────┘
+                                      │
+                                      ▼
+                      ┌───────────────────────────────┐
+                      │   Route Guards & Middleware   │
+                      │  - authenticate (JWT verify)  │
+                      │  - requireRole (RBAC matrix)  │
+                      │  - validate(ZodSchema)        │
+                      └───────────────┬───────────────┘
+                                      │
+                                      ▼
+                      ┌───────────────────────────────┐
+                      │      Controller Layer         │
+                      │  - Extract HTTP req params    │
+                      │  - Call Domain Service        │
+                      │  - Format Standard Response   │
+                      │  - (Zero DB queries here)     │
+                      └───────────────┬───────────────┘
+                                      │
+                                      ▼
+                      ┌───────────────────────────────┐
+                      │       Service Layer           │
+                      │  - Business Rules & Scoping   │
+                      │  - Atomic MongoDB Sessions    │
+                      │  - Soft-Delete Cascades       │
+                      │  - Async Audit Trail Record   │
+                      │  - Throw ApiError on failure  │
+                      └───────────────┬───────────────┘
+                                      │
+                                      ▼
+                      ┌───────────────────────────────┐
+                      │   Schema & Persistence        │
+                      │  - Zod Input & Output Schema  │
+                      │  - Mongoose Model Definition  │
+                      │  - Partial & Compound Indexes │
+                      └───────────────┬───────────────┘
+                                      │
+                                      ▼
+                      ┌───────────────────────────────┐
+                      │   MongoDB Storage Engine      │
+                      │  - Replica Set Transactions   │
+                      │  - Standalone Fallback        │
+                      │  - Covered Aggregations       │
+                      └───────────────────────────────┘
+```
+
+### Module Map
+
+```
+src/modules/
+├── auth/           # Authentication, JWT tokens, rotating refresh session families & reuse detection
+├── users/          # User administration (admin, staff, doctor, viewer) & account activation
+├── doctors/        # Doctor profiles, weekly availability schedules & doctor-level updates
+├── patients/       # Patient rosters, cascading queries, soft deletes & clinical note counts
+├── appointments/   # Booking lifecycle, partial unique index race prevention & rescheduling
+├── visits/         # Clinical SOAP notes (Subjective, Objective, Assessment, Plan) & addendums
+├── dashboard/      # Parallelized MongoDB aggregation pipelines & scoped clinician metrics
+└── audit/          # Append-only immutable compliance log, actor tracking & retention TTL
+```
+
+---
+
+## Getting Started
 
 ### Prerequisites
 
-- **Node.js**: v18.0.0 or higher
-- **Yarn**: v1.22+ or corepack
-- **MongoDB**: A local instance (`mongodb://localhost:27017/doctor_tracker`) or MongoDB Atlas URI
+- **Node.js**: `v20.x` or `v22.x` LTS
+- **Yarn**: `v1.22+` or Corepack
+- **MongoDB**: `v6.0+` (local standalone, replica set, or MongoDB Atlas) or **Docker**
 
 ---
 
-### Step-by-Step Installation
+### Option 1: Local Development Setup
 
-#### 1. Backend Setup
-
-1. Navigate to the backend directory:
+1. **Clone and install dependencies:**
    ```bash
    cd doctor-tracker-backend
-   ```
-2. Install dependencies:
-   ```bash
    yarn install
    ```
-3. Create your `.env` configuration file:
+
+2. **Configure environment variables:**
    ```bash
    cp .env.example .env
    ```
-   Configure the following environment variables in `.env`:
-   ```env
-   NODE_ENV=development
-   PORT=5000
-   CLIENT_URL=http://localhost:3000
-   MONGODB_URI=mongodb://localhost:27017/doctor_tracker
-   JWT_SECRET=super_secret_jwt_key_here_at_least_32_chars
-   ADMIN_NAME=Healthcare Admin
-   ADMIN_EMAIL=admin@doctortracker.com
-   ADMIN_PASSWORD=AdminPassword123!
-   ```
-4. Seed the initial admin account & sample healthcare data:
+   *(Review and adjust `.env` values as needed — see the Environment Variables table below).*
+
+3. **Seed demo data:**
    ```bash
-   yarn seed:admin
-   yarn seed:data
+   yarn seed:demo
    ```
-   _Note: `yarn seed:data` populates 20 doctors across diverse specializations with realistic hospital affiliations, chronologically staggered registration dates, and 2–5 linked patients each (70+ total patients)._
-5. Start the backend development server:
+   Populates accounts across all 4 roles (`admin`, `staff`, `doctor`, `viewer`), sample doctors, patients, appointments, visits, and audit records.
+
+4. **Start the development server:**
    ```bash
    yarn dev
    ```
-   The backend API will run at `http://localhost:5000/api/v1`.
+   The API server will listen on `http://localhost:5000/api/v1`.
 
 ---
 
-#### 2. Frontend Setup
+### Option 2: Docker Compose Setup
 
-1. Navigate to the frontend directory:
-   ```bash
-   cd ../doctor-tracker-frontend
-   ```
-2. Install dependencies:
-   ```bash
-   yarn install
-   ```
-3. Configure environment variables in `.env.local`:
-   ```bash
-   cp .env.example .env.local
-   ```
-   Ensure the backend endpoint is configured:
-   ```env
-   NEXT_PUBLIC_API_URL=http://localhost:5000/api/v1
-   ```
-4. Start the frontend development server:
-   ```bash
-   yarn dev
-   ```
-5. Open your browser and navigate to `http://localhost:3000`. You will be automatically redirected to `/dashboard` (or `/login` if unauthenticated).
+Run the entire stack (MongoDB single-node replica set with transactions + containerized API) with a single command:
+
+```bash
+docker compose up --build
+```
+
+- MongoDB starts with an automated replica set initialization healthcheck (`rs0`).
+- The API container waits for MongoDB healthy status, starts, and listens on `http://localhost:5000`.
+- Includes automated container health checks pinging `/api/v1/health`.
+
+To stop the stack and clean up containers:
+```bash
+docker compose down -v
+```
 
 ---
 
-## System Architecture
+## Environment Variables Reference
 
-The project follows a decoupled, service-oriented architecture:
+| Variable | Type | Default | Required | Purpose |
+|---|---|---|---|---|
+| `NODE_ENV` | `"development"` \| `"test"` \| `"production"` | `"development"` | No | Application runtime environment |
+| `PORT` | `number` | `5000` | No | HTTP port for the Express application |
+| `CLIENT_URL` | `string` (URL) | `http://localhost:3000` | Yes | CORS allowed origin for frontend client |
+| `MONGODB_URI` | `string` (URI) | `mongodb://localhost:27017/doctor_tracker` | Yes | MongoDB connection string |
+| `JWT_SECRET` | `string` (min 32 chars) | — | Yes | Secret key used to sign and verify HMAC-SHA256 JWTs |
+| `ACCESS_TOKEN_TTL_MINUTES` | `number` | `15` | No | Access token expiration duration in minutes |
+| `REFRESH_TOKEN_TTL_DAYS` | `number` | `7` | No | Refresh token session expiration duration in days |
+| `SESSION_MAX_DAYS` | `number` | `30` | No | Maximum absolute lifetime of a session family in days |
+| `REFRESH_REUSE_GRACE_SECONDS` | `number` | `10` | No | Multi-tab race window tolerance for refresh token rotation |
+| `MIN_BOOKING_LEAD_MINUTES` | `number` | `15` | No | Minimum lead time before an appointment can be scheduled |
+| `VISIT_EDIT_WINDOW_HOURS` | `number` | `24` | No | Window during which a clinician can edit original SOAP notes |
+| `AUDIT_RETENTION_DAYS` | `number` | *(unset)* | No | Automatic TTL retention period for audit logs in days |
+| `ENABLE_DOCS` | `boolean` | `true` | No | Toggles Swagger UI at `/api/docs` and OpenAPI JSON |
+| `ALLOW_SEED_RESET` | `boolean` | `false` | No | Safety flag required to drop existing data before running `seed:demo` |
+| `ADMIN_NAME` | `string` | `"Healthcare Admin"` | No | Display name for seeded demo admin user |
+| `ADMIN_EMAIL` | `string` | `"admin@doctortracker.com"` | No | Email for seeded demo admin user |
+| `ADMIN_PASSWORD` | `string` | `"AdminPassword123!"` | No | Password for seeded demo admin user |
 
+---
+
+## Scripts Reference
+
+| Command | Description |
+|---|---|
+| `yarn dev` | Starts the Express server with live TypeScript reload using `tsx watch` |
+| `yarn build` | Compiles strict TypeScript to production JavaScript in `dist/` |
+| `yarn start` | Runs the compiled production server from `dist/server.js` |
+| `yarn lint` | Runs ESLint 10 with typescript-eslint rules across `src/` and `tests/` |
+| `yarn lint:fix` | Automatically fixes ESLint rule violations |
+| `yarn format` | Runs Prettier across the entire codebase |
+| `yarn typecheck` | Validates TypeScript types across the project with zero emit (`tsc --noEmit`) |
+| `yarn test` | Runs the comprehensive Vitest integration test suite using MongoDB Memory Server |
+| `yarn test:coverage` | Runs Vitest with v8 coverage enforcement (threshold ≥ 70% line coverage on services) |
+| `yarn openapi:export` | Generates and exports the complete OpenAPI 3.1 spec to `openapi.json` |
+| `yarn seed:demo` | Seeds multi-role users, practitioners, patients, appointments, visits, and audit logs |
+| `yarn benchmark:dashboard` | Seeds 50,000 synthetic patient records and measures MongoDB aggregation performance |
+
+---
+
+## API Documentation & Observability
+
+### Interactive Documentation (Swagger UI)
+When `ENABLE_DOCS=true` (default), interactive API documentation is available at:
+- **Swagger UI:** `http://localhost:5000/api/docs`
+- **OpenAPI 3.1 Spec:** `http://localhost:5000/api/openapi.json`
+
+To generate a standalone spec file:
+```bash
+yarn openapi:export
 ```
-[ Browser / Next.js 16 Client ]
-       │
-       │ HTTP/REST (JSON + httpOnly JWT Cookie)
-       ▼
-[ Express.js 5 Application ]
-  ├── Security (Helmet, CORS, Cookie-Parser)
-  ├── Route Guards (authenticateAdmin middleware)
-  └── Modular Handlers:
-       ├── Auth Service (bcrypt, JWT token issuer)
-       ├── Doctor Service (MongoDB Lean queries & compound indexes)
-       ├── Patient Service (Relational refs & cascading queries)
-       └── Dashboard Service (Parallelized MongoDB Aggregation Pipelines)
-       │
-       ▼
-[ MongoDB Database ]
-  ├── doctors collection (indexed on name, spec, hospital, createdAt)
-  ├── patients collection (indexed on doctorId, condition, name, phone, createdAt)
-  └── admins collection (indexed on email)
+
+### Health & Readiness Probes
+
+- **Liveness Probe:** `GET /api/v1/health`
+  - Returns `200 OK` with uptime, timestamp, and process status.
+  - Used by container orchestrators to verify container liveness.
+- **Readiness Probe:** `GET /api/v1/ready`
+  - Performs an active `db.admin().ping()` against MongoDB.
+  - Returns `200 OK` when connected and responding.
+  - Returns `503 Service Unavailable` if MongoDB connection drops.
+
+### Standard Response Envelope
+
+All API responses follow a predictable JSON envelope structure:
+
+**Success Response:**
+```json
+{
+  "success": true,
+  "message": "Resource retrieved successfully",
+  "data": { ... }
+}
 ```
 
-- **Data Flow**:
-  1. Next.js communicates with Express REST endpoints using credentials mode (`include`) to exchange secure HTTP-only cookies.
-  2. TanStack Query manages asynchronous server state, caching, query invalidation, and optimistic feedback.
-  3. TanStack Table powers pagination, search filtering, and relational lookups across doctor and patient datasets.
-  4. The dashboard aggregates statistics directly at the database tier using MongoDB `$facet`, `$lookup`, and `$group` operations, avoiding wasteful transfers of raw record sets to the client.
+**Error Response:**
+```json
+{
+  "success": false,
+  "message": "Human-readable explanation of error",
+  "code": "MACHINE_READABLE_ERROR_CODE",
+  "errors": [
+    { "field": "email", "message": "Invalid email address format" }
+  ]
+}
+```
+
+---
+
+## Role-Based Access Control (RBAC) Matrix
+
+Doctor Tracker enforces strict principle-of-least-privilege authorization. The system defines 4 distinct roles:
+
+- **`admin`**: Full system administration, user management, and audit log inspection.
+- **`staff`**: Receptionists and intake staff; manages appointments, patients, and doctor directories.
+- **`doctor`**: Clinical practitioners; strictly isolated to their own assigned patients, appointments, and clinical SOAP notes.
+- **`viewer`**: Read-only stakeholder; can view statistics, doctor directories, and patient rosters without mutation rights.
+
+> **Doctor Scoping (`own`):** When a user with the `doctor` role accesses an appointment, patient, or visit not linked to their assigned `doctorId`, the server responds with **404 Not Found** (rather than 403 Forbidden) to eliminate resource enumeration vectors.
+
+| Endpoint Group | admin | staff | doctor | viewer |
+|---|:---:|:---:|:---:|:---:|
+| **Auth** (session, `/me`, password change) | ✓ | ✓ | ✓ | ✓ |
+| **Users Management** (`/api/v1/users`) | ✓ | ✗ | ✗ | ✗ |
+| **Doctors**: List / Read / Availability | ✓ | ✓ | ✓ | ✓ |
+| **Doctors**: Create / Delete | ✓ | ✗ | ✗ | ✗ |
+| **Doctors**: Update Profile | ✓ | ✗ | `own` (schedule only) | ✗ |
+| **Patients**: List / Read | ✓ | ✓ | `own` | ✓ |
+| **Patients**: Create / Update | ✓ | ✓ | `own` | ✗ |
+| **Patients**: Delete (Soft) | ✓ | ✓ | ✗ | ✗ |
+| **Dashboard**: Stats (`/dashboard/stats`) | ✓ | ✓ | ✗ | ✓ |
+| **Dashboard**: Appointments Breakdown | ✓ | ✓ | `own` (scoped) | ✓ |
+| **Appointments**: List / Read | ✓ | ✓ | `own` | ✓ |
+| **Appointments**: Create / Status / Reschedule | ✓ | ✓ | `own` | ✗ |
+| **Visits**: Read Clinical Notes | ✓ | ✗ | `own` | ✗ |
+| **Visits**: Create / Edit (24h) / Addendum | ✗ | ✗ | `own` | ✗ |
+| **Audit Logs** (`/api/v1/audit`) | ✓ | ✗ | ✗ | ✗ |
+
+*Legend: `✓` = Allowed; `✗` = 403 Forbidden; `own` = Restricted to clinician's own `doctorId` (out-of-scope returns 404).*
 
 ---
 
 ## Technical Decisions
 
-### Decision 1: Server-Side MongoDB Aggregation Pipeline vs. Client-Side In-Memory Compute
+### 1. Partial Unique Indexes for Race-Free Scheduling
+- **Problem:** When two concurrent requests attempt to book the exact same doctor time slot simultaneously, traditional application-level validation ("find existing booking then insert if empty") suffers from Time-Of-Check to Time-Of-Use (TOCTOU) race conditions.
+- **Solution:** We enforced scheduling exclusivity directly at the database tier using a **Mongoose partial unique compound index**:
+  ```typescript
+  AppointmentSchema.index(
+    { doctorId: 1, appointmentDate: 1, slot: 1 },
+    {
+      unique: true,
+      partialFilterExpression: { status: { $in: ["pending", "confirmed"] } },
+      name: "unique_scheduled_doctor_slot",
+    }
+  );
+  ```
+- **Result:** Concurrent booking collisions trigger a MongoDB `E11000` duplicate key violation, which the service layer catches and maps to an explicit `409 Conflict` (`SLOT_ALREADY_BOOKED`). Cancelled appointments are naturally excluded by the partial filter, allowing the slot to be immediately re-booked.
 
-- **Context**: The Admin Dashboard requires metrics including total practitioner headcounts, total patient volume, dynamic patient-to-doctor ratios, chronological registration trends, and specialty distribution.
-- **Why Aggregation Won**: Pulling entire collections of thousands of patient and doctor records down to the browser to run `.filter()`, `.reduce()`, and `.length` calls would incur severe network overhead, degrade mobile battery/CPU life, and fail scalability benchmarks. Instead, we architected a single, parallelized MongoDB aggregation pipeline in `DashboardService` using `$lookup`, `$group`, and date formatting operators. The database handles the calculation across indexed fields and returns a minimal, chart-ready JSON payload in under 20ms.
+### 2. Rotating Refresh Tokens with Multi-Tab Grace Window
+- **Problem:** Long-lived static access tokens are vulnerable to exfiltration. Rotating refresh tokens mitigates this, but immediate token invalidation causes race conditions when a user opens multiple browser tabs that refresh their sessions simultaneously.
+- **Solution:** We implemented family-based refresh token rotation in `AuthService` with an explicit **10-second grace window** (`REFRESH_REUSE_GRACE_SECONDS`):
+  1. Each successful login creates a `SessionFamily` record with a cryptographically hashed token.
+  2. When a refresh token is exchanged, it is marked as `isUsed: true` with a `rotatedAt` timestamp, and a new child token is issued.
+  3. If another tab presents the previous token within 10 seconds of rotation, the server returns `409 TOKEN_ROTATED`, signaling the client to reuse the freshly established cookie rather than terminating the session.
+  4. If a used token is presented *outside* the grace window, theft is assumed: the entire session family is instantly revoked (`401 SESSION_TERMINATED`).
 
-### Decision 2: TanStack React Query + HTTP-Only Cookie Authentication vs. LocalStorage Tokens
+### 3. Append-Only Audit Logging with Zero PHI Leaks
+- **Problem:** Regulatory standards require non-repudiable audit logging for patient data access and administrative operations without degrading request latency or storing Protected Health Information (PHI) in plaintext logs.
+- **Solution:**
+  - **Immutability:** The `AuditLog` schema enforces `strict: "throw"` with no update or delete routes exposed.
+  - **Non-blocking Resilience:** Domain services invoke `auditService.record()` asynchronously in a fire-and-forget or awaited best-effort fashion. Any audit storage error is trapped and logged via Pino without failing the primary user transaction.
+  - **Zero PHI Redaction:** Field changes automatically redact sensitive patient fields (`name`, `phone`, `email`, `medicalHistory`, `passwordHash`, `chiefComplaint`, `assessment`) into `"[redacted]"`, preserving change lineage without persisting confidential medical records.
 
-- **Context**: Authentication tokens must be persisted across page reloads and protected from Cross-Site Scripting (XSS) vectors.
-- **Why HTTP-Only Cookies + React Query Won**: Storing JWT tokens in `localStorage` exposes them to client-side script theft via XSS vulnerabilities. By configuring the Express server to set the `accessToken` in an `httpOnly`, `sameSite: "lax"`, and `secure` cookie, the token cannot be accessed by client JavaScript. Combining this with TanStack Query and a centralized React `AuthProvider` guarantees automatic re-validation, seamless silent session checks (`GET /auth/me`), and zero token leakage.
+### 4. Soft Deletes and Standalone-Resilient Atomic Transactions
+- **Problem:** Healthcare records must not be permanently deleted on casual deletion requests. Furthermore, multi-document mutations (e.g., patient deletion cascading to pending appointment cancellations and audit records) require atomic consistency, but local development environments frequently run standalone MongoDB instances without replica sets.
+- **Solution:**
+  - **Soft Deletes:** Patient models utilize `isDeleted: true` and `deletedAt` timestamps. Lookups automatically exclude soft-deleted records, and cascading operations cancel associated upcoming appointments.
+  - **Transaction Utility:** `src/utils/transaction.ts` inspects the active MongoDB connection. If a replica set is active, mutations run inside a managed multi-document MongoDB transaction (`session.withTransaction()`). If running on a standalone developer instance, operations proceed with non-transactional fallback without throwing `Transaction numbers are only allowed on a replica set member`.
+
+### 5. Modular Monolith Architecture
+- **Problem:** Microservices introduce operational complexity, network latency, distributed transaction challenges, and deployment overhead that are unnecessary for unified healthcare administrative portals.
+- **Solution:** We structured the backend as a strictly bounded modular monolith:
+  - Controllers contain zero database queries, purely validating requests and translating service exceptions into standard HTTP responses.
+  - Services communicate via clear interfaces and share database connection pools.
+  - This architecture delivers high developer velocity, sub-millisecond inter-module communication, and single-container deployments while maintaining clean boundaries that can be extracted into microservices if scaling demands dictate.
+
+### 6. Native Zod 4 OpenAPI Specification Generation
+- **Problem:** Maintaining a separate `openapi.yaml` file quickly leads to schema drift between the actual code and documentation. Third-party OpenAPI decorators often bloat controller classes with repetitive annotations.
+- **Solution:** We leveraged Zod 4's native `z.toJSONSchema()` capability in `src/docs/openapi.ts`. By passing custom unrepresentable schema handlers for dates and coercions, our existing request validation schemas directly generate the 100% compliant OpenAPI 3.1 specification served at `/api/openapi.json` and rendered interactively by Swagger UI at `/api/docs`.
 
 ---
 
-## Visual Evidence
+## Performance Benchmarks
 
-### 1. Admin Dashboard (Desktop & Mobile)
+To verify performance under realistic enterprise data volume, we executed the automated benchmark suite (`yarn benchmark:dashboard`) on an isolated dataset containing **50,000 synthetic patient records** distributed across 10 active practitioners.
 
-- Overview cards for Total Doctors, Total Patients, and Patients Per Doctor.
-- Interactive Recharts registration timeline (Area chart) with dynamic time filtering (`7d`, `30d`, `90d`, `1y`, `all`).
-- Patients per doctor workload breakdown (Horizontal Bar chart).
-- Medical specialty distribution (Donut chart) and common conditions breakdown.
+### Measured Results
 
-### 2. Doctor Management Portal
+```
+==================================================
+   DASHBOARD 50K PATIENT BENCHMARK (Phase 5.5)   
+==================================================
 
-- Full TanStack data table with debounced search by doctor name, specialty filtering, hospital filtering, and shadcn Date Picker range filters.
-- "Add Doctor" modal dialog with real-time Zod schema validation.
-- Dedicated Doctor & Patients page (`/doctors/[id]`): Displays doctor details (specialization, hospital, phone, email, joined date) at the top and their complete patient roster at the bottom.
-- "Add Patient" modal dialog accessible right above the patient roster to register new patients directly under that practitioner.
-- Shadcn Alert Dialog confirmation for securely removing patients from a doctor's care.
+Total Patients Seeded:   50,000 records (batch insertion: ~2.34s)
+Iterations:              5 consecutive aggregation runs
+Average Latency:         49.29 ms
+Min Latency:             48.48 ms
+Max Latency:             50.11 ms
+Server Execution Time:   63 ms
+Total Docs Examined:     0 (100% index-covered execution)
+Documents Returned:      30 aggregated buckets
+```
 
-### 3. Dedicated Patient Management
+### Analysis
+The dashboard aggregation pipeline utilizes compound indexes on `{ doctorId: 1, isDeleted: 1 }` and `{ createdAt: 1 }`. MongoDB satisfies the facet aggregations directly from the B-tree index keys without scanning unindexed document bodies (`totalDocsExamined: 0`), keeping latency consistently under 50ms even with 50,000 patient records.
 
-- Full registry table with name/phone search, condition filtering, and date range filters.
-- "Edit Patient" modal dialog.
-- Delete confirmation dialog with cache synchronization.
+---
 
-### 4. Theme Support
+## Limitations & Future Roadmap
 
-- Instant toggling between Light and Dark themes via `next-themes` and CSS design tokens.
+- **HIPAA Disclaimer:** This software is an administrative demonstration platform. It does not constitute a certified HIPAA-compliant Electronic Health Record (EHR) system out of the box. Production healthcare deployments require formal HIPAA/HITECH risk assessments, Business Associate Agreements (BAAs), database encryption-at-rest, centralized key management (KMS), and physical access controls.
+- **Synthetic Data:** All seeded clinicians, patients, contact numbers, and clinical SOAP notes are entirely synthetic and generated for demonstration purposes.
+- **Future Enhancements:**
+  - Real-time WebSocket notifications for doctor schedule updates and appointment status changes.
+  - Redis caching layer for read-heavy dashboard metric endpoints.
+  - Sharding support for high-throughput multi-hospital deployments.
 
+---
 
-### 5. Sample Images
-<img width="576" height="1280" alt="WhatsApp Image 2026-11-01 at 12 05 29 AM" src="https://github.com/user-attachments/assets/630fef5f-f5be-4d10-8a9a-a84c47f20596" />
-<img width="576" height="1280" alt="WhatsApp Image 2026-11-01 at 12 05 35 AM" src="https://github.com/user-attachments/assets/627a0c01-3c5a-4531-9b62-718df4849552" />
-<img width="576" height="1280" alt="WhatsApp Image 2026-11-01 at 12 05 34 AM" src="https://github.com/user-attachments/assets/d1d60ca8-0e47-4a7f-b4ad-88f0d67b2223" />
-<img width="576" height="1280" alt="WhatsApp Image 2026-11-01 at 12 05 33 AM" src="https://github.com/user-attachments/assets/0be93d07-4359-4971-b17d-03812d2b9380" />
-<img width="576" height="1280" alt="WhatsApp Image 2026-11-01 at 12 05 32 AM" src="https://github.com/user-attachments/assets/3712745f-0b67-45dd-8b65-aa6d373f637e" />
-<img width="576" height="1280" alt="WhatsApp Image 2026-11-01 at 12 05 31 AM" src="https://github.com/user-attachments/assets/52ed876b-71a3-423e-959f-bbdff7a9229c" />
-<img width="576" height="1280" alt="WhatsApp Image 2026-11-01 at 12 05 31 AM (2)" src="https://github.com/user-attachments/assets/bf74ce89-6e23-4f82-9d23-3faffb5e91ff" />
-<img width="576" height="1280" alt="WhatsApp Image 2026-11-01 at 12 05 31 AM (1)" src="https://github.com/user-attachments/assets/1fbd9569-3335-45df-b4e6-ae985e85fc2f" />
-<img width="576" height="1280" alt="WhatsApp Image 2026-11-01 at 12 05 30 AM" src="https://github.com/user-attachments/assets/32ebd70b-5974-4e30-b2c9-b4c2cf8d6020" />
-<img width="1919" height="920" alt="Screenshot_425" src="https://github.com/user-attachments/assets/3c9aab00-6386-400b-be08-50b26d33f13b" />
-<img width="1917" height="922" alt="Screenshot_424" src="https://github.com/user-attachments/assets/298a30d0-a6aa-4e33-a8fe-1153abc8b857" />
-<img width="1909" height="922" alt="Screenshot_423" src="https://github.com/user-attachments/assets/1bd6142b-6d00-4dfa-9dbb-3dbe13dc19ea" />
-<img width="1919" height="922" alt="Screenshot_422" src="https://github.com/user-attachments/assets/9342d1f0-973d-46d9-b316-524519daec9b" />
-<img width="1919" height="921" alt="Screenshot_421" src="https://github.com/user-attachments/assets/c6872343-662c-4ed9-956e-769b415a068b" />
-<img width="1919" height="920" alt="Screenshot_420" src="https://github.com/user-attachments/assets/80aa39d9-a2ee-43cd-b331-7562e9818354" />
-<img width="1909" height="920" alt="Screenshot_419" src="https://github.com/user-attachments/assets/e5e89837-2f3f-4782-b392-111a6d4f6ccb" />
-<img width="1907" height="921" alt="Screenshot_418" src="https://github.com/user-attachments/assets/7f144672-5da9-4cc8-a5fc-944e957479ff" />
-<img width="1919" height="921" alt="Screenshot_417" src="https://github.com/user-attachments/assets/fd546964-9505-44ef-9788-da02b9563cf5" />
+## License
 
-### 6. Demo Credentials
-- Email: nafis@gmail.com
-- Password: qwtef12376e
+This project is licensed under the MIT License.

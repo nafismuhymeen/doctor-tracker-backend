@@ -11,7 +11,7 @@ class PatientController {
     getAll: RequestHandler = async (req, res) => {
         const query = patientQuerySchema.parse(req.query);
 
-        const result = await patientService.getAll(query);
+        const result = await patientService.getAll(query, req.user);
 
         res.status(200).json({
             success: true,
@@ -27,7 +27,7 @@ class PatientController {
             throw new ApiError("Invalid patient ID", 400);
         }
 
-        const patient = await patientService.getById(patientId);
+        const patient = await patientService.getById(patientId, req.user);
 
         res.status(200).json({
             success: true,
@@ -44,7 +44,11 @@ class PatientController {
         }
 
         const validatedData = updatePatientSchema.parse(req.body);
-        const patient = await patientService.update(patientId, validatedData);
+        const patient = await patientService.update(
+            patientId,
+            validatedData,
+            req.user
+        );
 
         res.status(200).json({
             success: true,
@@ -78,7 +82,8 @@ class PatientController {
         const validatedData = createPatientSchema.parse(req.body);
         const patient = await patientService.createUnderDoctor(
             doctorId,
-            validatedData
+            validatedData,
+            req.user
         );
 
         res.status(201).json({
@@ -95,12 +100,17 @@ class PatientController {
             throw new ApiError("Invalid doctor ID", 400);
         }
 
+        // If user is doctor and doctorId does not match their own doctorId, return 404
+        if (req.user?.role === "doctor" && req.user.doctorId !== doctorId) {
+            throw new ApiError("Doctor not found or inactive", 404);
+        }
+
         const query = patientQuerySchema.parse({
             ...req.query,
             doctorId,
         });
 
-        const result = await patientService.getAll(query);
+        const result = await patientService.getAll(query, req.user);
 
         res.status(200).json({
             success: true,

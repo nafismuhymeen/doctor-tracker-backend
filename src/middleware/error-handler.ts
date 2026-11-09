@@ -1,8 +1,7 @@
 import type { ErrorRequestHandler } from "express";
-import mongoose from "mongoose";
 import { ZodError } from "zod";
-
 import { ApiError } from "../utils/api-error.js";
+import { env } from "../config/env.js";
 
 export const errorHandler: ErrorRequestHandler = (
     error,
@@ -11,31 +10,26 @@ export const errorHandler: ErrorRequestHandler = (
     _next
 ) => {
     let statusCode = 500;
-    let message = "Internal server error";
-    let errors: unknown;
+    let message = "Internal Server Error";
+    let code: string | undefined;
+    let errors: Record<string, string[]> | undefined;
 
     if (error instanceof ApiError) {
         statusCode = error.statusCode;
         message = error.message;
+        code = error.code;
     } else if (error instanceof ZodError) {
         statusCode = 400;
-        message = "Validation failed";
+        message = "Validation Error";
 
-        errors = error.issues.map((issue) => ({
-            field: issue.path.join("."),
-            message: issue.message,
-        }));
-    } else if (error instanceof mongoose.Error.CastError) {
-        statusCode = 400;
-        message = "Invalid resource ID";
-    } else if (error instanceof mongoose.Error.ValidationError) {
-        statusCode = 400;
-        message = "Database validation failed";
-
-        errors = Object.values(error.errors).map((item) => ({
-            field: item.path,
-            message: item.message,
-        }));
+        errors = {};
+        for (const issue of error.issues) {
+            const field = issue.path.join(".");
+            if (!errors[field]) {
+                errors[field] = [];
+            }
+            errors[field].push(issue.message);
+        }
     } else if (
         typeof error === "object" &&
         error !== null &&
@@ -44,6 +38,16 @@ export const errorHandler: ErrorRequestHandler = (
     ) {
         statusCode = 409;
         message = "A record with this value already exists";
+    } else if (
+        typeof error === "object" &&
+        error !== null &&
+        ((error as any).status === 413 ||
+            (error as any).statusCode === 413 ||
+            (error as any).type === "entity.too.large")
+    ) {
+        statusCode = 413;
+        message = "Payload too large: request body exceeds 100kb limit";
+        code = "PAYLOAD_TOO_LARGE";
     }
 
     if (statusCode === 500) {
@@ -53,8 +57,9 @@ export const errorHandler: ErrorRequestHandler = (
     res.status(statusCode).json({
         success: false,
         message,
+        ...(code ? { code } : {}),
         ...(errors ? { errors } : {}),
-        ...(process.env.NODE_ENV === "development" &&
+        ...(env.NODE_ENV === "development" &&
             error instanceof Error
             ? { stack: error.stack }
             : {}),
