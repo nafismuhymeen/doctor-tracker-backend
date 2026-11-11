@@ -8,6 +8,7 @@ export interface ISession extends Document {
     familyExpiresAt: Date;
     revokedAt?: Date | null;
     replacedByHash?: string | null;
+    tokenVersion?: number;
     userAgent: string;
     ip: string;
     createdAt: Date;
@@ -47,6 +48,10 @@ const sessionSchema = new Schema<ISession>(
         replacedByHash: {
             type: String,
             default: null,
+        },
+        tokenVersion: {
+            type: Number,
+            default: 0,
         },
         userAgent: {
             type: String,

@@ -126,10 +126,12 @@ class AuditService {
         return {
             logs,
             pagination: {
-                total,
-                page,
+                currentPage: page,
                 limit,
+                totalAuditLogs: total,
                 totalPages,
+                hasNextPage: page < totalPages,
+                hasPreviousPage: page > 1,
             },
         };
     }

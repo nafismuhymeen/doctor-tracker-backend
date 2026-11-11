@@ -26,7 +26,6 @@ The system strictly follows a decoupled, layered modular monolith pattern. Every
                       │   Route Guards & Middleware   │
                       │  - authenticate (JWT verify)  │
                       │  - requireRole (RBAC matrix)  │
-                      │  - validate(ZodSchema)        │
                       └───────────────┬───────────────┘
                                       │
                                       ▼
@@ -144,8 +143,8 @@ docker compose down -v
 |---|---|---|---|---|
 | `NODE_ENV` | `"development"` \| `"test"` \| `"production"` | `"development"` | No | Application runtime environment |
 | `PORT` | `number` | `5000` | No | HTTP port for the Express application |
-| `CLIENT_URL` | `string` (URL) | `http://localhost:3000` | Yes | CORS allowed origin for frontend client |
-| `MONGODB_URI` | `string` (URI) | `mongodb://localhost:27017/doctor_tracker` | Yes | MongoDB connection string |
+| `CLIENT_URLS` | `string` (comma-separated URLs) | — | Yes | CORS allowed origin(s) for frontend client |
+| `MONGODB_URI` | `string` (URI) | — | Yes | MongoDB connection string |
 | `JWT_SECRET` | `string` (min 32 chars) | — | Yes | Secret key used to sign and verify HMAC-SHA256 JWTs |
 | `ACCESS_TOKEN_TTL_MINUTES` | `number` | `15` | No | Access token expiration duration in minutes |
 | `REFRESH_TOKEN_TTL_DAYS` | `number` | `7` | No | Refresh token session expiration duration in days |
@@ -156,9 +155,9 @@ docker compose down -v
 | `AUDIT_RETENTION_DAYS` | `number` | *(unset)* | No | Automatic TTL retention period for audit logs in days |
 | `ENABLE_DOCS` | `boolean` | `true` | No | Toggles Swagger UI at `/api/docs` and OpenAPI JSON |
 | `ALLOW_SEED_RESET` | `boolean` | `false` | No | Safety flag required to drop existing data before running `seed:demo` |
-| `ADMIN_NAME` | `string` | `"Healthcare Admin"` | No | Display name for seeded demo admin user |
-| `ADMIN_EMAIL` | `string` | `"admin@doctortracker.com"` | No | Email for seeded demo admin user |
-| `ADMIN_PASSWORD` | `string` | `"AdminPassword123!"` | No | Password for seeded demo admin user |
+| `ADMIN_NAME` | `string` | *(unset)* | No | Optional display name for seeded demo admin user |
+| `ADMIN_EMAIL` | `string` | *(unset)* | No | Optional email for seeded demo admin user |
+| `ADMIN_PASSWORD` | `string` | *(unset)* | No | Optional password for seeded demo admin user |
 
 ---
 
@@ -269,16 +268,16 @@ Doctor Tracker enforces strict principle-of-least-privilege authorization. The s
 - **Problem:** When two concurrent requests attempt to book the exact same doctor time slot simultaneously, traditional application-level validation ("find existing booking then insert if empty") suffers from Time-Of-Check to Time-Of-Use (TOCTOU) race conditions.
 - **Solution:** We enforced scheduling exclusivity directly at the database tier using a **Mongoose partial unique compound index**:
   ```typescript
-  AppointmentSchema.index(
-    { doctorId: 1, appointmentDate: 1, slot: 1 },
+  appointmentSchema.index(
+    { doctorId: 1, startsAt: 1 },
     {
       unique: true,
-      partialFilterExpression: { status: { $in: ["pending", "confirmed"] } },
+      partialFilterExpression: { status: "scheduled" },
       name: "unique_scheduled_doctor_slot",
     }
   );
   ```
-- **Result:** Concurrent booking collisions trigger a MongoDB `E11000` duplicate key violation, which the service layer catches and maps to an explicit `409 Conflict` (`SLOT_ALREADY_BOOKED`). Cancelled appointments are naturally excluded by the partial filter, allowing the slot to be immediately re-booked.
+- **Result:** Concurrent booking collisions trigger a MongoDB `E11000` duplicate key violation, which the service layer catches and maps to an explicit `409 Conflict` (`SLOT_TAKEN`). Cancelled or completed appointments are naturally excluded by the partial filter, allowing the slot to be immediately re-booked.
 
 ### 2. Rotating Refresh Tokens with Multi-Tab Grace Window
 - **Problem:** Long-lived static access tokens are vulnerable to exfiltration. Rotating refresh tokens mitigates this, but immediate token invalidation causes race conditions when a user opens multiple browser tabs that refresh their sessions simultaneously.
@@ -293,7 +292,7 @@ Doctor Tracker enforces strict principle-of-least-privilege authorization. The s
 - **Solution:**
   - **Immutability:** The `AuditLog` schema enforces `strict: "throw"` with no update or delete routes exposed.
   - **Non-blocking Resilience:** Domain services invoke `auditService.record()` asynchronously in a fire-and-forget or awaited best-effort fashion. Any audit storage error is trapped and logged via Pino without failing the primary user transaction.
-  - **Zero PHI Redaction:** Field changes automatically redact sensitive patient fields (`name`, `phone`, `email`, `medicalHistory`, `passwordHash`, `chiefComplaint`, `assessment`) into `"[redacted]"`, preserving change lineage without persisting confidential medical records.
+  - **Zero PHI Redaction:** Sensitive fields (passwords, tokens, and clinical SOAP content such as `notes`, `diagnosis`, `chiefComplaint`, `prescriptions`, `addenda`) are completely omitted from audit changes. For patient records, PII fields (`phone`, `email`) are masked as `"[redacted]"`. Non-sensitive operational fields (e.g., doctor metadata, appointment times/status, user roles) record genuine from/to values.
 
 ### 4. Soft Deletes and Standalone-Resilient Atomic Transactions
 - **Problem:** Healthcare records must not be permanently deleted on casual deletion requests. Furthermore, multi-document mutations (e.g., patient deletion cascading to pending appointment cancellations and audit records) require atomic consistency, but local development environments frequently run standalone MongoDB instances without replica sets.
@@ -325,12 +324,12 @@ To verify performance under realistic enterprise data volume, we executed the au
    DASHBOARD 50K PATIENT BENCHMARK (Phase 5.5)   
 ==================================================
 
-Total Patients Seeded:   50,000 records (batch insertion: ~2.34s)
+Total Patients Seeded:   50,000 records (batch insertion: ~2.48s)
 Iterations:              5 consecutive aggregation runs
-Average Latency:         49.29 ms
-Min Latency:             48.48 ms
-Max Latency:             50.11 ms
-Server Execution Time:   63 ms
+Average Latency:         53.36 ms
+Min Latency:             49.98 ms
+Max Latency:             61.52 ms
+Server Execution Time:   82 ms
 Total Docs Examined:     0 (100% index-covered execution)
 Documents Returned:      30 aggregated buckets
 ```

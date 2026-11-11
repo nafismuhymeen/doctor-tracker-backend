@@ -142,6 +142,26 @@ describe("Platform Hardening & Delivery (Phase 5)", () => {
                 patientService.deleteUnderDoctor(doc.id, new mongoose.Types.ObjectId().toString())
             ).rejects.toThrow();
         });
+
+        it("fails closed in scopeFor when role is doctor without doctorId", async () => {
+            const { scopeFor } = await import("../src/utils/scope.js");
+
+            // Doctor without doctorId should fail closed (return non-matching ID)
+            const scopeNoDocId = scopeFor({ id: "user-1", role: "doctor" });
+            expect(scopeNoDocId.doctorId).toBeDefined();
+            expect(scopeNoDocId.doctorId?.toString()).toBe("000000000000000000000000");
+
+            // Doctor with doctorId
+            const validDocId = new mongoose.Types.ObjectId().toString();
+            const scopeValid = scopeFor({ id: "user-2", role: "doctor", doctorId: validDocId });
+            expect(scopeValid.doctorId?.toString()).toBe(validDocId);
+
+            // Admin / Staff / Viewer should return open scope
+            expect(scopeFor({ id: "admin-1", role: "admin" })).toEqual({});
+            expect(scopeFor({ id: "staff-1", role: "staff" })).toEqual({});
+            expect(scopeFor({ id: "viewer-1", role: "viewer" })).toEqual({});
+            expect(scopeFor(undefined)).toEqual({});
+        });
     });
 });
 

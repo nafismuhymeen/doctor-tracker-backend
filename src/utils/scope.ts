@@ -21,9 +21,15 @@ export function scopeFor(user?: UserContext): ScopeFilter {
         return {};
     }
 
-    if (user.role === "doctor" && user.doctorId) {
+    if (user.role === "doctor") {
+        if (user.doctorId && mongoose.Types.ObjectId.isValid(user.doctorId)) {
+            return {
+                doctorId: new mongoose.Types.ObjectId(user.doctorId),
+            };
+        }
+        // Fail closed: doctor without doctorId must match nothing
         return {
-            doctorId: new mongoose.Types.ObjectId(user.doctorId),
+            doctorId: new mongoose.Types.ObjectId("000000000000000000000000"),
         };
     }
 

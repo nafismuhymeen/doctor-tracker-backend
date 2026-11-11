@@ -914,10 +914,12 @@ Success: `200 OK`
       }
     ],
     "pagination": {
-      "total": 142,
-      "page": 1,
+      "currentPage": 1,
       "limit": 20,
-      "totalPages": 8
+      "totalAuditLogs": 142,
+      "totalPages": 8,
+      "hasNextPage": true,
+      "hasPreviousPage": false
     }
   }
 }

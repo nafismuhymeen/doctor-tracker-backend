@@ -165,6 +165,54 @@ describe("Auth Module", () => {
             });
             expect(activeSessions).toBe(0);
         });
+
+        it("concurrency race: parallel /auth/refresh calls with identical token yield exactly one 200 and one 409", async () => {
+            const { user, plainPassword } = await createTestUser();
+
+            const loginRes = await request(app)
+                .post("/api/v1/auth/login")
+                .send({ email: user.email, password: plainPassword });
+
+            const initialCookies = loginRes.headers["set-cookie"];
+            const rawCookies = Array.isArray(initialCookies) ? initialCookies : [initialCookies];
+            const refreshCookie = rawCookies.find((c: string) => c.startsWith("refreshToken="));
+            expect(refreshCookie).toBeDefined();
+
+            // Fire two parallel refresh calls with the exact same cookie
+            const [res1, res2] = await Promise.all([
+                request(app).post("/api/v1/auth/refresh").set("Cookie", [refreshCookie!]),
+                request(app).post("/api/v1/auth/refresh").set("Cookie", [refreshCookie!]),
+            ]);
+
+            const statuses = [res1.status, res2.status].sort();
+            expect(statuses).toEqual([200, 409]);
+
+            const errorRes = res1.status === 409 ? res1 : res2;
+            expect(errorRes.body.code).toBe("TOKEN_ROTATED");
+        });
+
+        it("rejects refresh when user's tokenVersion has changed", async () => {
+            const { user, plainPassword } = await createTestUser();
+
+            const loginRes = await request(app)
+                .post("/api/v1/auth/login")
+                .send({ email: user.email, password: plainPassword });
+
+            const initialCookies = loginRes.headers["set-cookie"];
+            const rawCookies = Array.isArray(initialCookies) ? initialCookies : [initialCookies];
+            const refreshCookie = rawCookies.find((c: string) => c.startsWith("refreshToken="));
+            expect(refreshCookie).toBeDefined();
+
+            // Increment user's tokenVersion in DB
+            await User.findByIdAndUpdate(user._id, { $inc: { tokenVersion: 1 } });
+
+            const refreshRes = await request(app)
+                .post("/api/v1/auth/refresh")
+                .set("Cookie", [refreshCookie!]);
+
+            expect(refreshRes.status).toBe(401);
+            expect(refreshRes.body.code).toBe("SESSION_REVOKED");
+        });
     });
 
     describe("GET /api/v1/auth/me", () => {

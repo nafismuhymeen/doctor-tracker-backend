@@ -124,6 +124,7 @@ class AuthService {
             tokenHash,
             expiresAt: sessionExpiresAt,
             familyExpiresAt,
+            tokenVersion: user.tokenVersion,
             userAgent: meta.userAgent || "",
             ip: meta.ip || "",
         });
@@ -163,9 +164,65 @@ class AuthService {
         }
 
         const tokenHash = hashRefreshToken(refreshToken);
-        const session = await Session.findOne({ tokenHash });
+        const now = new Date();
+
+        // Atomically revoke the unrevoked session to prevent race conditions
+        const session = await Session.findOneAndUpdate(
+            { tokenHash, revokedAt: null },
+            { revokedAt: now },
+            { returnDocument: "before" }
+        );
 
         if (!session) {
+            // Either session does not exist, or it was already revoked
+            const existingSession = await Session.findOne({ tokenHash });
+
+            if (!existingSession) {
+                throw new ApiError(
+                    "Session not found or invalid",
+                    401,
+                    true,
+                    "SESSION_REVOKED"
+                );
+            }
+
+            if (existingSession.revokedAt) {
+                const elapsedMs = now.getTime() - existingSession.revokedAt.getTime();
+                const graceMs = env.REFRESH_REUSE_GRACE_SECONDS * 1000;
+
+                if (elapsedMs <= graceMs) {
+                    // Benign multi-tab race condition: token already rotated
+                    throw new ApiError(
+                        "Token was recently rotated",
+                        409,
+                        true,
+                        "TOKEN_ROTATED"
+                    );
+                }
+
+                // Reuse detected outside grace window: token theft! Revoke whole family!
+                await Session.updateMany(
+                    { familyId: existingSession.familyId, revokedAt: null },
+                    { revokedAt: now }
+                );
+
+                await auditService.record({
+                    action: "auth.refresh.reuse_detected",
+                    entityType: "Auth",
+                    entityId: existingSession.userId.toString(),
+                    outcome: "failure",
+                    reason: `Token reuse detected for family ${existingSession.familyId}`,
+                    actor: { id: existingSession.userId.toString() },
+                });
+
+                throw new ApiError(
+                    "Session reuse detected. All sessions in this family have been revoked.",
+                    401,
+                    true,
+                    "SESSION_TERMINATED"
+                );
+            }
+
             throw new ApiError(
                 "Session not found or invalid",
                 401,
@@ -174,60 +231,26 @@ class AuthService {
             );
         }
 
-        const now = new Date();
-
-        // Check if session was already revoked (potential token reuse)
-        if (session.revokedAt) {
-            const elapsedMs = now.getTime() - session.revokedAt.getTime();
-            const graceMs = env.REFRESH_REUSE_GRACE_SECONDS * 1000;
-
-            if (elapsedMs <= graceMs) {
-                // Benign multi-tab race condition: token already rotated
-                throw new ApiError(
-                    "Token was recently rotated",
-                    409,
-                    true,
-                    "TOKEN_ROTATED"
-                );
-            }
-
-            // Reuse detected outside grace window: token theft! Revoke whole family!
-            await Session.updateMany(
-                { familyId: session.familyId, revokedAt: null },
-                { revokedAt: now }
-            );
-
-            await auditService.record({
-                action: "auth.refresh.reuse_detected",
-                entityType: "Auth",
-                entityId: session.userId.toString(),
-                outcome: "failure",
-                reason: `Token reuse detected for family ${session.familyId}`,
-                actor: { id: session.userId.toString() },
-            });
-
-            throw new ApiError(
-                "Session reuse detected. All sessions in this family have been revoked.",
-                401,
-                true,
-                "SESSION_TERMINATED"
-            );
-        }
-
         // Check expiration
         if (session.expiresAt <= now || session.familyExpiresAt <= now) {
-            session.revokedAt = now;
-            await session.save();
             throw new ApiError("Session has expired", 401, true, "SESSION_REVOKED");
         }
 
         const user = await User.findById(session.userId);
 
         if (!user || !user.isActive) {
-            session.revokedAt = now;
-            await session.save();
             throw new ApiError(
                 "User account is inactive or not found",
+                401,
+                true,
+                "SESSION_REVOKED"
+            );
+        }
+
+        // Reject refresh if user's tokenVersion has changed
+        if (session.tokenVersion !== undefined && user.tokenVersion !== session.tokenVersion) {
+            throw new ApiError(
+                "Session has been revoked",
                 401,
                 true,
                 "SESSION_REVOKED"
@@ -238,8 +261,7 @@ class AuthService {
         const newRefreshToken = generateRefreshToken();
         const newHash = hashRefreshToken(newRefreshToken);
 
-        // Mark current session revoked and replaced
-        session.revokedAt = now;
+        // Mark current session replaced
         session.replacedByHash = newHash;
         await session.save();
 
@@ -258,6 +280,7 @@ class AuthService {
             tokenHash: newHash,
             expiresAt: newExpiresAt,
             familyExpiresAt: session.familyExpiresAt,
+            tokenVersion: user.tokenVersion,
             userAgent: meta.userAgent || session.userAgent,
             ip: meta.ip || session.ip,
         });
@@ -405,6 +428,7 @@ class AuthService {
             tokenHash,
             expiresAt: sessionExpiresAt,
             familyExpiresAt,
+            tokenVersion: user.tokenVersion,
             userAgent: meta.userAgent || "",
             ip: meta.ip || "",
         });

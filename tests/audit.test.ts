@@ -385,7 +385,10 @@ describe("Audit Logging Domain (Phase 4)", () => {
             expect(resPage.status).toBe(200);
             expect(resPage.body.data.logs.length).toBeLessThanOrEqual(2);
             expect(resPage.body.data.pagination.limit).toBe(2);
-            expect(resPage.body.data.pagination.page).toBe(1);
+            expect(resPage.body.data.pagination.currentPage).toBe(1);
+            expect(resPage.body.data.pagination.totalAuditLogs).toBeDefined();
+            expect(typeof resPage.body.data.pagination.hasNextPage).toBe("boolean");
+            expect(typeof resPage.body.data.pagination.hasPreviousPage).toBe("boolean");
 
             // Get by ID
             const target = await AuditLog.findOne({ action: "filter.test.two" });

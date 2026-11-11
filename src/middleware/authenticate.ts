@@ -69,6 +69,3 @@ export const authenticate: RequestHandler = async (req, _res, next) => {
 
     next();
 };
-
-// Backward-compatible alias for any residual imports
-export const authenticateAdmin = authenticate;
