@@ -2,19 +2,25 @@ import mongoose from "mongoose";
 import { ApiError } from "../../utils/api-error.js";
 import { escapeRegex } from "../../utils/escape-regex.js";
 import { withTransaction } from "../../utils/with-transaction.js";
-import { Doctor } from "./doctor.model.js";
+import { Doctor, DEFAULT_WORKING_HOURS } from "./doctor.model.js";
 import { Patient } from "../patients/patient.model.js";
 import { Appointment } from "../appointments/appointment.model.js";
 import { auditService } from "../audit/audit.service.js";
 import { diffObjects } from "../audit/audit.util.js";
-import type {
-    CreateDoctorInput,
-    DoctorQueryInput,
-    UpdateDoctorInput,
+import {
+    validateWorkingHoursAlignment,
+    type CreateDoctorInput,
+    type DoctorQueryInput,
+    type UpdateDoctorInput,
 } from "./doctor.schema.js";
 
 class DoctorService {
     async create(input: CreateDoctorInput) {
+        // Enforce working hours alignment with slotMinutes
+        const slotMinutes = input.slotMinutes ?? 30;
+        const workingHours = input.workingHours ?? DEFAULT_WORKING_HOURS;
+        validateWorkingHoursAlignment(workingHours, slotMinutes);
+
         // Enforce uniqueness among active doctors
         const existing = await Doctor.findOne({
             email: input.email.toLowerCase(),
@@ -176,6 +182,24 @@ class DoctorService {
                     409
                 );
             }
+        }
+
+        // Validate working hours alignment only when workingHours or slotMinutes is updated
+        const hasWorkingHours = input.workingHours !== undefined;
+        const hasSlotMinutes = input.slotMinutes !== undefined;
+
+        if (hasWorkingHours || hasSlotMinutes) {
+            const effectiveSlotMinutes = hasSlotMinutes
+                ? input.slotMinutes!
+                : (doctor.slotMinutes ?? 30);
+            const effectiveWorkingHours = hasWorkingHours
+                ? input.workingHours!
+                : (doctor.workingHours ?? DEFAULT_WORKING_HOURS);
+
+            validateWorkingHoursAlignment(
+                effectiveWorkingHours,
+                effectiveSlotMinutes
+            );
         }
 
         const before = doctor.toObject();

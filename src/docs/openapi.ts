@@ -308,6 +308,7 @@ export const openApiSpec: Record<string, unknown> = {
                 },
                 responses: {
                     "201": { description: "Doctor created" },
+                    "400": { description: "Validation error or UNALIGNED_WORKING_HOURS" },
                     "409": { description: "Doctor with this email already exists" },
                 },
             },
@@ -336,6 +337,7 @@ export const openApiSpec: Record<string, unknown> = {
                 },
                 responses: {
                     "200": { description: "Doctor updated" },
+                    "400": { description: "Validation error or UNALIGNED_WORKING_HOURS" },
                     "404": { description: "Doctor not found" },
                 },
             },

@@ -290,7 +290,7 @@ Doctor Tracker enforces strict principle-of-least-privilege authorization. The s
 ### 3. Append-Only Audit Logging with Zero PHI Leaks
 - **Problem:** Regulatory standards require non-repudiable audit logging for patient data access and administrative operations without degrading request latency or storing Protected Health Information (PHI) in plaintext logs.
 - **Solution:**
-  - **Immutability:** The `AuditLog` schema enforces `strict: "throw"` with no update or delete routes exposed.
+  - **Immutability:** The AuditLog model registers pre-hooks that throw on updateOne, updateMany, findOneAndUpdate, deleteOne, deleteMany and findOneAndDelete, and no update or delete routes are exposed. (Direct database access can bypass Mongoose hooks; a production system would also restrict database permissions.)
   - **Non-blocking Resilience:** Domain services invoke `auditService.record()` asynchronously in a fire-and-forget or awaited best-effort fashion. Any audit storage error is trapped and logged via Pino without failing the primary user transaction.
   - **Zero PHI Redaction:** Sensitive fields (passwords, tokens, and clinical SOAP content such as `notes`, `diagnosis`, `chiefComplaint`, `prescriptions`, `addenda`) are completely omitted from audit changes. For patient records, PII fields (`phone`, `email`) are masked as `"[redacted]"`. Non-sensitive operational fields (e.g., doctor metadata, appointment times/status, user roles) record genuine from/to values.
 
@@ -335,7 +335,7 @@ Documents Returned:      30 aggregated buckets
 ```
 
 ### Analysis
-The dashboard aggregation pipeline utilizes compound indexes on `{ doctorId: 1, isDeleted: 1 }` and `{ createdAt: 1 }`. MongoDB satisfies the facet aggregations directly from the B-tree index keys without scanning unindexed document bodies (`totalDocsExamined: 0`), keeping latency consistently under 50ms even with 50,000 patient records.
+The dashboard aggregation pipeline utilizes compound indexes on `{ doctorId: 1, isDeleted: 1 }` and `{ createdAt: 1 }`. MongoDB satisfies the facet aggregations directly from the B-tree index keys without scanning unindexed document bodies (`totalDocsExamined: 0`), with an average of about 53 ms (max about 62 ms) across 50,000 patient records on a local machine.
 
 ---
 

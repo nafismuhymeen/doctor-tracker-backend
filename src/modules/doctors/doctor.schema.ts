@@ -1,9 +1,29 @@
 import { z } from "zod";
 import { IANAZone } from "luxon";
+import { ApiError } from "../../utils/api-error.js";
 
 export function parseMinutes(time: string): number {
     const [h, m] = time.split(":").map(Number);
     return h * 60 + m;
+}
+
+export function validateWorkingHoursAlignment(
+    workingHours: Array<{ start: string; end: string }>,
+    slotMinutes: number
+): void {
+    for (const range of workingHours) {
+        const startMin = parseMinutes(range.start);
+        const endMin = parseMinutes(range.end);
+        const duration = endMin - startMin;
+        if (duration % slotMinutes !== 0) {
+            throw new ApiError(
+                `Working hours must align to the ${slotMinutes}-minute slot length (${range.start}-${range.end} is ${duration} minutes)`,
+                400,
+                true,
+                "UNALIGNED_WORKING_HOURS"
+            );
+        }
+    }
 }
 
 export const timezoneSchema = z

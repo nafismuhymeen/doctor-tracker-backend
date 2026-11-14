@@ -341,6 +341,7 @@ Errors:
 ### Overview of Changes
 - Converted `Patient` deletion to soft delete (`isDeleted: boolean`, `deletedAt: Date | null`). Soft-deleting a patient automatically cancels their future scheduled appointments in a database transaction (`cancelReason: "Patient removed"`).
 - Added schedule fields to `Doctor`: `timezone` (IANA string, default `"Asia/Dhaka"`), `slotMinutes` (10–120 in steps of 5, default 30), and `workingHours` (array of ranges per day 0–6).
+- Enforced working-hour alignment on `POST /api/v1/doctors` and `PATCH /api/v1/doctors/:id`: every working-hour range duration (end - start) must be a multiple of the doctor's `slotMinutes`, returning `400 UNALIGNED_WORKING_HOURS` when unaligned. Unrelated updates touching neither field are not blocked.
 - Extended `PATCH /api/v1/doctors/:id` allowing doctors to update their own schedule fields.
 - Protected doctor soft deletion: refuses deletion with `409 DOCTOR_HAS_APPOINTMENTS` if future scheduled appointments exist.
 - Implemented core scheduling domain (`/api/v1/appointments`) with concurrency-safe slot booking using a partial unique index, minimum booking lead time, advance booking window, and patient double-booking protection.
@@ -414,6 +415,7 @@ Success: `200 OK`
 ```
 Errors:
 - `400`: validation error (overlapping ranges, invalid format, start >= end)
+- `400 UNALIGNED_WORKING_HOURS`: working hour range duration (end - start) is not a multiple of slotMinutes (e.g., `"Working hours must align to the 45-minute slot length (09:00-17:00 is 480 minutes)"`)
 - `403 FORBIDDEN`: staff/viewer attempting update
 - `404`: doctor not found or doctor accessing another doctor's record
 
