@@ -62,7 +62,10 @@ export const prescriptionItemSchema = z.object({
 export const createVisitSchema = z.object({
     patientId: objectIdSchema,
     appointmentId: objectIdSchema.optional(),
-    visitDate: z.coerce.date().optional(),
+    visitDate: z.preprocess(
+        (v) => (v === null || v === "" ? undefined : v),
+        z.coerce.date().optional()
+    ),
     chiefComplaint: z
         .string()
         .trim()
@@ -83,7 +86,10 @@ export const createVisitSchema = z.object({
         .array(prescriptionItemSchema)
         .max(20, "Cannot prescribe more than 20 medications per visit")
         .optional(),
-    followUpDate: z.coerce.date().optional(),
+    followUpDate: z.preprocess(
+        (v) => (v === null || v === "" ? undefined : v),
+        z.coerce.date().optional()
+    ),
 });
 
 export const updateVisitSchema = z

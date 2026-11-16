@@ -22,7 +22,8 @@
     "seed": "tsx src/scripts/seed-admin.ts && tsx src/scripts/seed-data.ts",
     "backfill:doctors": "tsx src/scripts/backfill-doctors.ts",
     "migrate:users": "tsx src/scripts/migrate-admins-to-users.ts",
-    "check:schedules": "tsx src/scripts/check-doctor-schedules.ts"
+    "check:schedules": "tsx src/scripts/check-doctor-schedules.ts",
+    "check:visits": "tsx src/scripts/check-visit-dates.ts"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

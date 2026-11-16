@@ -120,7 +120,7 @@ const visitSchema = new Schema<IVisit>(
         },
         followUpDate: {
             type: Date,
-            default: null,
+            default: undefined,
         },
         createdBy: {
             type: Schema.Types.ObjectId,

@@ -356,4 +356,77 @@ describe("Visits Domain (Clinical Notes - Phase 3)", () => {
             expect(viewerRes.body.data.appointment.visitId).toBeUndefined();
         });
     });
+
+    describe("Date Preprocessing & Null Coercion (followUpDate & visitDate)", () => {
+        it("POST /visits with followUpDate:null must create a visit whose followUpDate is undefined, not 1970-01-01", async () => {
+            const doctor = await createTestDoctor();
+            const patient = await createTestPatient(doctor.id);
+            const { agent: docAgent } = await loginAs("doctor", { doctorId: doctor.id });
+
+            const res = await docAgent.post("/api/v1/visits").send({
+                patientId: patient.id,
+                chiefComplaint: "General review",
+                diagnosis: "Normal exam",
+                notes: "Patient is recovering well.",
+                followUpDate: null,
+                visitDate: null,
+            });
+
+            expect(res.status).toBe(201);
+            expect(res.body.success).toBe(true);
+            expect(res.body.data.visit.followUpDate).toBeUndefined();
+
+            // Direct database assertion to guarantee followUpDate is undefined and not 1970-01-01
+            const visitId = res.body.data.visit._id || res.body.data.visit.id;
+            const storedVisit = await Visit.findById(visitId).lean();
+            expect(storedVisit?.followUpDate).toBeUndefined();
+
+            // visitDate must default to current date, NOT 1970-01-01
+            expect(storedVisit?.visitDate).toBeDefined();
+            expect(storedVisit?.visitDate.getFullYear()).toBeGreaterThanOrEqual(2020);
+        });
+
+        it("POST /visits with followUpDate empty string must create a visit whose followUpDate is undefined", async () => {
+            const doctor = await createTestDoctor();
+            const patient = await createTestPatient(doctor.id);
+            const { agent: docAgent } = await loginAs("doctor", { doctorId: doctor.id });
+
+            const res = await docAgent.post("/api/v1/visits").send({
+                patientId: patient.id,
+                chiefComplaint: "Follow-up check",
+                diagnosis: "Resolved",
+                notes: "No further follow-up required.",
+                followUpDate: "",
+            });
+
+            expect(res.status).toBe(201);
+            expect(res.body.success).toBe(true);
+            expect(res.body.data.visit.followUpDate).toBeUndefined();
+
+            const visitId = res.body.data.visit._id || res.body.data.visit.id;
+            const storedVisit = await Visit.findById(visitId).lean();
+            expect(storedVisit?.followUpDate).toBeUndefined();
+        });
+
+        it("finds visits with followUpDate before year 2000 via audit helper", async () => {
+            const { findSuspiciousVisits } = await import("../src/scripts/check-visit-dates.js");
+            const doctor = await createTestDoctor();
+            const patient = await createTestPatient(doctor.id);
+            const { user: docUser } = await loginAs("doctor", { doctorId: doctor.id });
+
+            // Create a legacy corrupted visit directly in DB with 1970 followUpDate
+            const legacyCorruptedVisit = await createTestVisit(doctor.id, patient.id, docUser.id, {
+                followUpDate: new Date("1970-01-01T00:00:00.000Z"),
+            } as any);
+
+            // Create a normal visit
+            const normalVisit = await createTestVisit(doctor.id, patient.id, docUser.id, {
+                followUpDate: new Date("2026-12-01T00:00:00.000Z"),
+            } as any);
+
+            const suspicious = await findSuspiciousVisits();
+            expect(suspicious.some((v) => v.id === legacyCorruptedVisit.id)).toBe(true);
+            expect(suspicious.some((v) => v.id === normalVisit.id)).toBe(false);
+        });
+    });
 });
