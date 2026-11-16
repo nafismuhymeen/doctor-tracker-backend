@@ -45,11 +45,14 @@ const envSchema = z
         // Platform & Delivery configuration (Phase 5)
         ENABLE_DOCS: z.coerce.boolean().default(true),
         ALLOW_SEED_RESET: z.coerce.boolean().default(false),
+        ALLOW_DEMO_SEED: z.coerce.boolean().default(false),
 
         // Seed Users configuration
         ADMIN_NAME: z.string().optional(),
         ADMIN_EMAIL: z.string().optional(),
         ADMIN_PASSWORD: z.string().optional(),
+        DEMO_VIEWER_EMAIL: z.string().email().optional(),
+        DEMO_VIEWER_PASSWORD: z.string().optional(),
         STAFF_EMAIL: z.string().optional(),
         STAFF_PASSWORD: z.string().optional(),
         DOCTOR_USER_EMAIL: z.string().optional(),

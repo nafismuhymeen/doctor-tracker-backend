@@ -9,7 +9,7 @@ import { Visit } from "../modules/visits/visit.model.js";
 import { User, type Role } from "../modules/users/user.model.js";
 import { hashPassword } from "../utils/password.js";
 
-const demoDoctors = [
+export const demoDoctors = [
     {
         name: "Dr. Sarah Johnson",
         specialization: "Cardiology",
@@ -71,7 +71,7 @@ const demoDoctors = [
     },
 ];
 
-const patientNames: Array<{
+export const patientNames: Array<{
     name: string;
     age: number;
     gender: "male" | "female" | "other";
@@ -89,9 +89,14 @@ const patientNames: Array<{
     { name: "Ava Martinez", age: 41, gender: "female", condition: "Rotator Cuff Tear", phone: "+1 (555) 101-2008", email: "ava.martinez@example.com" },
 ];
 
-export async function runDemoSeed() {
-    if (env.NODE_ENV === "production") {
-        console.error("FATAL: Seed execution refused. NODE_ENV is set to production.");
+export async function runDemoSeed(options?: { nodeEnv?: string; disconnectOnComplete?: boolean }) {
+    const nodeEnv = options?.nodeEnv ?? env.NODE_ENV;
+    if (nodeEnv === "production") {
+        const msg = "FATAL: Seed execution refused. NODE_ENV is set to production.";
+        console.error(msg);
+        if (options?.nodeEnv) {
+            throw new Error(msg);
+        }
         process.exit(1);
     }
 
@@ -137,10 +142,11 @@ export async function runDemoSeed() {
             { name: "Demo Viewer", email: "viewer@clinic.com", role: "viewer" },
         ];
 
+        const seededUsers: Record<string, any> = {};
         for (const u of usersToSeed) {
-            const existing = await User.findOne({ email: u.email });
+            let existing = await User.findOne({ email: u.email });
             if (!existing) {
-                await User.create({
+                existing = await User.create({
                     name: u.name,
                     email: u.email,
                     passwordHash,
@@ -151,7 +157,10 @@ export async function runDemoSeed() {
                 });
                 console.log(`Created ${u.role} user: ${u.email}`);
             }
+            seededUsers[u.role] = existing;
         }
+
+        const adminUser = seededUsers["admin"] || (await User.findOne({ role: "admin" }));
 
         // 3. Seed patients
         const createdPatients: any[] = [];
@@ -198,6 +207,7 @@ export async function runDemoSeed() {
                     status: pastStatus,
                     cancelReason,
                     reason: `Consultation for ${patient.condition}`,
+                    createdBy: adminUser?._id,
                 });
                 appointmentCount++;
 
@@ -221,8 +231,9 @@ export async function runDemoSeed() {
                                 weightKg: 70 + (i * 2),
                             },
                             prescriptions: [
-                                { medication: "Daily Multivitamin", dosage: "1 tablet daily", duration: "30 days" },
+                                { drug: "Daily Multivitamin", dose: "1 tablet", frequency: "once daily", durationDays: 30 },
                             ],
+                            createdBy: adminUser?._id,
                         });
                         visitCount++;
                     }
@@ -243,6 +254,7 @@ export async function runDemoSeed() {
                     endsAt: futureEnd.toJSDate(),
                     status: "scheduled",
                     reason: `Follow-up appointment for ${patient.condition}`,
+                    createdBy: adminUser?._id,
                 });
                 appointmentCount++;
             }
@@ -257,7 +269,9 @@ export async function runDemoSeed() {
         console.log("Default User: admin@clinic.com / Password123!");
         console.log("==========================================\n");
     } finally {
-        await mongoose.disconnect();
+        if (options?.disconnectOnComplete ?? true) {
+            await mongoose.disconnect();
+        }
     }
 }
 

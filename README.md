@@ -155,9 +155,12 @@ docker compose down -v
 | `AUDIT_RETENTION_DAYS` | `number` | *(unset)* | No | Automatic TTL retention period for audit logs in days |
 | `ENABLE_DOCS` | `boolean` | `true` | No | Toggles Swagger UI at `/api/docs` and OpenAPI JSON |
 | `ALLOW_SEED_RESET` | `boolean` | `false` | No | Safety flag required to drop existing data before running `seed:demo` |
+| `ALLOW_DEMO_SEED` | `boolean` | `false` | No | Safety gate required to run `seed:demo-prod` in `NODE_ENV=production` |
+| `DEMO_VIEWER_EMAIL` | `string` (email) | *(unset)* | Yes (for `seed:demo-prod`) | Email for the read-only demo viewer account |
+| `DEMO_VIEWER_PASSWORD` | `string` | *(unset)* | Yes (for `seed:demo-prod`) | Secure password for the read-only demo viewer account |
 | `ADMIN_NAME` | `string` | *(unset)* | No | Optional display name for seeded demo admin user |
 | `ADMIN_EMAIL` | `string` | *(unset)* | No | Optional email for seeded demo admin user |
-| `ADMIN_PASSWORD` | `string` | *(unset)* | No | Optional password for seeded demo admin user |
+| `ADMIN_PASSWORD` | `string` | *(unset)* | Yes (for `seed:demo-prod`) | Admin password (must be ≥ 12 chars and not `"Password123!"` for `seed:demo-prod`) |
 
 ---
 
@@ -175,8 +178,21 @@ docker compose down -v
 | `yarn test` | Runs the comprehensive Vitest integration test suite using MongoDB Memory Server |
 | `yarn test:coverage` | Runs Vitest with v8 coverage enforcement (threshold ≥ 70% line coverage on services) |
 | `yarn openapi:export` | Generates and exports the complete OpenAPI 3.1 spec to `openapi.json` |
-| `yarn seed:demo` | Seeds multi-role users, practitioners, patients, appointments, visits, and audit logs |
+| `yarn seed:demo` | Seeds multi-role users, practitioners, patients, appointments, visits, and audit logs (development/staging only; strictly refuses production) |
+| `yarn seed:demo-prod` | Production-safe demo seed creating only strong-credentialed admin and viewer accounts |
 | `yarn benchmark:dashboard` | Seeds 50,000 synthetic patient records and measures MongoDB aggregation performance |
+
+---
+
+### Production-Safe Demo Seeding (`yarn seed:demo-prod`)
+
+For public demos or showroom environments deployed in production (`NODE_ENV=production`), `yarn seed:demo-prod` populates doctors, patients, appointments, and visits while strictly maintaining operational security:
+
+- **Strict Environment Guard:** Refuses execution in `NODE_ENV=production` unless `ALLOW_DEMO_SEED=true` is explicitly set.
+- **Strong Admin Password:** Requires `ADMIN_PASSWORD` to be set, at least 12 characters long, and refuses default insecure passwords such as `"Password123!"`.
+- **Read-Only Viewer Account:** Provisions a read-only `viewer` account whose credentials are provided via `DEMO_VIEWER_EMAIL` and `DEMO_VIEWER_PASSWORD`.
+- **No Insecure Shared Accounts:** Strictly **does not** create `staff` or `doctor` user accounts with known or default passwords. Clinicians and staff must be provisioned individually by the administrator.
+- **Unmodified Dev Seeding:** The development seed script (`yarn seed:demo`) continues to unconditionally refuse running in `NODE_ENV=production`.
 
 ---
 

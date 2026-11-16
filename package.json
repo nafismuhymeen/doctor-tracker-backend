@@ -17,6 +17,7 @@
     "openapi:export": "tsx src/scripts/export-openapi.ts",
     "benchmark:dashboard": "tsx src/scripts/benchmark-dashboard.ts",
     "seed:demo": "tsx src/scripts/seed-demo.ts",
+    "seed:demo-prod": "tsx src/scripts/seed-demo-prod.ts",
     "seed:admin": "tsx src/scripts/seed-admin.ts",
     "seed:data": "tsx src/scripts/seed-data.ts",
     "seed": "tsx src/scripts/seed-admin.ts && tsx src/scripts/seed-data.ts",
