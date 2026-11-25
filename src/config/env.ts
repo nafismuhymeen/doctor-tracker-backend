@@ -16,7 +16,7 @@ export const envBool = (defaultValue = false) =>
         return false;
     }, z.boolean().default(defaultValue));
 
-const envSchema = z
+export const envSchema = z
     .object({
         NODE_ENV: z
             .enum(["development", "production", "test"])
@@ -41,6 +41,10 @@ const envSchema = z
             .enum(["lax", "strict", "none"])
             .default("lax"),
         TRUST_PROXY: z.coerce.number().int().nonnegative().default(1),
+
+        // Rate Limiting configuration
+        AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
+        GENERAL_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(300),
 
         // Session and Token TTL configuration (Phase 1)
         ACCESS_TOKEN_TTL_MINUTES: z.coerce.number().int().positive().default(15),

@@ -146,6 +146,9 @@ docker compose down -v
 | `CLIENT_URLS` | `string` (comma-separated URLs) | — | Yes | CORS allowed origin(s) for frontend client |
 | `MONGODB_URI` | `string` (URI) | — | Yes | MongoDB connection string |
 | `JWT_SECRET` | `string` (min 32 chars) | — | Yes | Secret key used to sign and verify HMAC-SHA256 JWTs |
+| `TRUST_PROXY` | `number` | `1` | No | Number of reverse proxy hops to trust |
+| `AUTH_RATE_LIMIT_MAX` | `number` | `10` | No | Max auth requests per 15-minute window per IP |
+| `GENERAL_RATE_LIMIT_MAX` | `number` | `300` | No | Max general API requests per 15-minute window per IP |
 | `ACCESS_TOKEN_TTL_MINUTES` | `number` | `15` | No | Access token expiration duration in minutes |
 | `REFRESH_TOKEN_TTL_DAYS` | `number` | `7` | No | Refresh token session expiration duration in days |
 | `SESSION_MAX_DAYS` | `number` | `30` | No | Maximum absolute lifetime of a session family in days |
