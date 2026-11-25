@@ -137,6 +137,12 @@ docker compose down -v
 
 ---
 
+### Running with the Frontend
+
+The companion frontend application is hosted in the [doctor-tracker-frontend](https://github.com/nafismuhymeen/doctor-tracker-frontend) repository. The API is designed to sit behind the frontend's same-origin reverse proxy (`COOKIE_SAME_SITE=lax`), ensuring authentication cookies and credentials work seamlessly without third-party cross-origin cookie restrictions.
+
+---
+
 ## Environment Variables Reference
 
 | Variable | Type | Default | Required | Purpose |
@@ -146,6 +152,7 @@ docker compose down -v
 | `CLIENT_URLS` | `string` (comma-separated URLs) | — | Yes | CORS allowed origin(s) for frontend client |
 | `MONGODB_URI` | `string` (URI) | — | Yes | MongoDB connection string |
 | `JWT_SECRET` | `string` (min 32 chars) | — | Yes | Secret key used to sign and verify HMAC-SHA256 JWTs |
+| `COOKIE_SAME_SITE` | `"lax"` \| `"strict"` \| `"none"` | `"lax"` | No | SameSite policy for auth session cookies (`"none"` requires `NODE_ENV=production`) |
 | `TRUST_PROXY` | `number` | `1` | No | Number of reverse proxy hops to trust |
 | `AUTH_RATE_LIMIT_MAX` | `number` | `10` | No | Max auth requests per 15-minute window per IP |
 | `GENERAL_RATE_LIMIT_MAX` | `number` | `300` | No | Max general API requests per 15-minute window per IP |
@@ -183,6 +190,12 @@ docker compose down -v
 | `yarn openapi:export` | Generates and exports the complete OpenAPI 3.1 spec to `openapi.json` |
 | `yarn seed:demo` | Seeds multi-role users, practitioners, patients, appointments, visits, and audit logs (development/staging only; strictly refuses production) |
 | `yarn seed:demo-prod` | Production-safe demo seed creating only strong-credentialed admin and viewer accounts |
+| `yarn seed:admin` | Seeds the initial administrator user from `ADMIN_NAME`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD` env vars |
+| `yarn seed:data` | Seeds sample practitioners and patient rosters assigned across doctors |
+| `yarn check:schedules` | Read-only audit listing active doctors whose working hour ranges do not align to their `slotMinutes` |
+| `yarn check:visits` | Read-only audit of visits dated before 2000 (identifies corrupted or epoch timestamps) |
+| `yarn backfill:doctors` | Backfills `isDeleted: false` and `deletedAt: null` on legacy doctor records and synchronizes schema indexes |
+| `yarn migrate:users` | Migrates legacy records from the `admins` collection into the unified `users` collection with `role: "admin"` |
 | `yarn benchmark:dashboard` | Seeds 50,000 synthetic patient records and measures MongoDB aggregation performance |
 
 ---
@@ -334,7 +347,7 @@ Doctor Tracker enforces strict principle-of-least-privilege authorization. The s
 
 ## Performance Benchmarks
 
-To verify performance under realistic enterprise data volume, we executed the automated benchmark suite (`yarn benchmark:dashboard`) on an isolated dataset containing **50,000 synthetic patient records** distributed across 10 active practitioners.
+To verify performance under realistic enterprise data volume, we executed the automated benchmark suite (`yarn benchmark:dashboard`) on an isolated dataset containing **50,000 synthetic patient records** distributed across 10 active practitioners. Note that these are single local runs on a development machine, not a load test, and that the server execution time comes from a separate `explain()` run.
 
 ### Measured Results
 
