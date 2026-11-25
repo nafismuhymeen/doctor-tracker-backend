@@ -1,5 +1,9 @@
+import mongoose from "mongoose";
+import { DateTime } from "luxon";
 import { Doctor } from "../doctors/doctor.model.js";
 import { Patient } from "../patients/patient.model.js";
+import { Appointment } from "../appointments/appointment.model.js";
+import type { UserContext } from "../../utils/scope.js";
 import type { DashboardQueryInput } from "./dashboard.schema.js";
 
 class DashboardService {
@@ -59,17 +63,25 @@ class DashboardService {
             specializationStats,
             topConditions,
         ] = await Promise.all([
-            // 1. Total counts
-            Doctor.countDocuments(),
-            Patient.countDocuments(),
+            // 1. Total counts (excluding soft-deleted doctors and patients)
+            Doctor.countDocuments({ isDeleted: false }),
+            Patient.countDocuments({ isDeleted: false }),
 
-            // 2. Patients per doctor aggregation
+            // 2. Patients per doctor aggregation (only active doctors and active patients)
             Doctor.aggregate([
+                { $match: { isDeleted: false } },
                 {
                     $lookup: {
                         from: "patients",
-                        localField: "_id",
-                        foreignField: "doctorId",
+                        let: { docId: "$_id" },
+                        pipeline: [
+                            {
+                                $match: {
+                                    $expr: { $eq: ["$doctorId", "$$docId"] },
+                                    isDeleted: false,
+                                },
+                            },
+                        ],
                         as: "patients",
                     },
                 },
@@ -86,10 +98,11 @@ class DashboardService {
                 { $sort: { patientCount: -1, name: 1 } },
             ]),
 
-            // 3. Date-based statistics: Doctor registrations
+            // 3. Date-based statistics: Doctor registrations (only active doctors)
             Doctor.aggregate([
                 {
                     $match: {
+                        isDeleted: false,
                         createdAt: {
                             $gte: rangeStartDate,
                             $lte: rangeEndDate,
@@ -110,10 +123,11 @@ class DashboardService {
                 { $sort: { _id: 1 } },
             ]),
 
-            // 4. Date-based statistics: Patient registrations
+            // 4. Date-based statistics: Patient registrations (only active patients)
             Patient.aggregate([
                 {
                     $match: {
+                        isDeleted: false,
                         createdAt: {
                             $gte: rangeStartDate,
                             $lte: rangeEndDate,
@@ -134,8 +148,9 @@ class DashboardService {
                 { $sort: { _id: 1 } },
             ]),
 
-            // 5. Specialization breakdown (insights)
+            // 5. Specialization breakdown (only active doctors)
             Doctor.aggregate([
+                { $match: { isDeleted: false } },
                 {
                     $group: {
                         _id: "$specialization",
@@ -153,8 +168,9 @@ class DashboardService {
                 },
             ]),
 
-            // 6. Top patient conditions (insights)
+            // 6. Top patient conditions (only active patients)
             Patient.aggregate([
+                { $match: { isDeleted: false } },
                 {
                     $group: {
                         _id: "$condition",
@@ -233,7 +249,191 @@ class DashboardService {
             },
         };
     }
+
+    /**
+     * Retrieve aggregated statistics for Appointments Dashboard (Phase 2).
+     */
+    async getAppointmentDashboardStats(
+        query: DashboardQueryInput,
+        user: UserContext
+    ) {
+        const { rangeStartDate, rangeEndDate } = this.getDateRange(query);
+
+        // Default clinic timezone
+        const timezone = "Asia/Dhaka";
+        const nowInTz = DateTime.now().setZone(timezone);
+        const todayStart = nowInTz.startOf("day").toJSDate();
+        const todayEnd = nowInTz.endOf("day").toJSDate();
+        const next7DaysEnd = nowInTz.plus({ days: 7 }).endOf("day").toJSDate();
+
+        const baseMatch: Record<string, unknown> = {};
+        if (user.role === "doctor") {
+            if (!user.doctorId) {
+                baseMatch.doctorId = new mongoose.Types.ObjectId();
+            } else {
+                baseMatch.doctorId = new mongoose.Types.ObjectId(user.doctorId);
+            }
+        }
+
+        const [facetResult] = await Appointment.aggregate([
+            { $match: baseMatch },
+            {
+                $facet: {
+                    today: [
+                        {
+                            $match: {
+                                startsAt: { $gte: todayStart, $lte: todayEnd },
+                            },
+                        },
+                        {
+                            $group: {
+                                _id: "$status",
+                                count: { $sum: 1 },
+                            },
+                        },
+                    ],
+                    next7Days: [
+                        {
+                            $match: {
+                                status: "scheduled",
+                                startsAt: {
+                                    $gte: nowInTz.startOf("day").toJSDate(),
+                                    $lte: next7DaysEnd,
+                                },
+                            },
+                        },
+                        {
+                            $group: {
+                                _id: {
+                                    $dateToString: {
+                                        format: "%Y-%m-%d",
+                                        date: "$startsAt",
+                                        timezone,
+                                    },
+                                },
+                                count: { $sum: 1 },
+                            },
+                        },
+                        { $sort: { _id: 1 } },
+                    ],
+                    rangeStats: [
+                        {
+                            $match: {
+                                startsAt: {
+                                    $gte: rangeStartDate,
+                                    $lte: rangeEndDate,
+                                },
+                            },
+                        },
+                        {
+                            $group: {
+                                _id: "$status",
+                                count: { $sum: 1 },
+                            },
+                        },
+                    ],
+                    topDoctors: [
+                        {
+                            $match: {
+                                status: "scheduled",
+                                startsAt: {
+                                    $gte: nowInTz.startOf("day").toJSDate(),
+                                    $lte: next7DaysEnd,
+                                },
+                            },
+                        },
+                        {
+                            $group: {
+                                _id: "$doctorId",
+                                scheduledCount: { $sum: 1 },
+                            },
+                        },
+                        { $sort: { scheduledCount: -1 } },
+                        { $limit: 5 },
+                        {
+                            $lookup: {
+                                from: "doctors",
+                                localField: "_id",
+                                foreignField: "_id",
+                                as: "doctor",
+                            },
+                        },
+                        { $unwind: "$doctor" },
+                        { $match: { "doctor.isDeleted": false } },
+                        {
+                            $project: {
+                                _id: 0,
+                                doctorId: "$_id",
+                                name: "$doctor.name",
+                                specialization: "$doctor.specialization",
+                                hospital: "$doctor.hospital",
+                                scheduledCount: 1,
+                            },
+                        },
+                    ],
+                },
+            },
+        ]);
+
+        // 1. Process today counts
+        const todayMap = new Map<string, number>();
+        let todayTotal = 0;
+        for (const item of facetResult.today) {
+            todayMap.set(item._id, item.count);
+            todayTotal += item.count;
+        }
+
+        const todayCounts = {
+            total: todayTotal,
+            scheduled: todayMap.get("scheduled") || 0,
+            completed: todayMap.get("completed") || 0,
+            cancelled: todayMap.get("cancelled") || 0,
+            noShow: todayMap.get("no_show") || 0,
+        };
+
+        // 2. Process next 7 days counts
+        const next7DaysMap = new Map<string, number>();
+        for (const item of facetResult.next7Days) {
+            next7DaysMap.set(item._id, item.count);
+        }
+
+        const next7DaysTimeline = [];
+        for (let i = 0; i < 7; i++) {
+            const dateStr = nowInTz.plus({ days: i }).toFormat("yyyy-MM-dd");
+            next7DaysTimeline.push({
+                date: dateStr,
+                scheduledCount: next7DaysMap.get(dateStr) || 0,
+            });
+        }
+
+        // 3. Process no-show rate
+        let rangeTotal = 0;
+        let rangeNoShow = 0;
+        for (const item of facetResult.rangeStats) {
+            rangeTotal += item.count;
+            if (item._id === "no_show") {
+                rangeNoShow += item.count;
+            }
+        }
+        const noShowRate =
+            rangeTotal > 0
+                ? Number(((rangeNoShow / rangeTotal) * 100).toFixed(1))
+                : 0;
+
+        return {
+            today: todayCounts,
+            next7Days: next7DaysTimeline,
+            noShowRate: {
+                ratePercentage: noShowRate,
+                noShowCount: rangeNoShow,
+                totalAppointments: rangeTotal,
+                range: query.range,
+            },
+            ...(user.role !== "doctor"
+                ? { topBusiestDoctors: facetResult.topDoctors }
+                : {}),
+        };
+    }
 }
 
 export const dashboardService = new DashboardService();
-

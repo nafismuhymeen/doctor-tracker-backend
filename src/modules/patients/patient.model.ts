@@ -8,6 +8,8 @@ export interface IPatient extends Document {
     email?: string;
     condition: string;
     doctorId: Types.ObjectId;
+    isDeleted: boolean;
+    deletedAt?: Date | null;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -50,6 +52,16 @@ const patientSchema = new Schema<IPatient>(
             type: Schema.Types.ObjectId,
             ref: "Doctor",
             required: true,
+        },
+        isDeleted: {
+            type: Boolean,
+            default: false,
+            required: true,
+            index: true,
+        },
+        deletedAt: {
+            type: Date,
+            default: null,
         },
     },
     {

@@ -15,6 +15,21 @@ class DashboardController {
             data,
         });
     };
+
+    getAppointmentsStats: RequestHandler = async (req, res) => {
+        const query = dashboardQuerySchema.parse(req.query);
+
+        const data = await dashboardService.getAppointmentDashboardStats(
+            query,
+            req.user!
+        );
+
+        res.status(200).json({
+            success: true,
+            message: "Appointments dashboard statistics retrieved successfully",
+            data,
+        });
+    };
 }
 
 export const dashboardController = new DashboardController();

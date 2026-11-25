@@ -1,7 +1,14 @@
+import type { Role } from "../../modules/users/user.model.js";
+
 declare global {
     namespace Express {
         interface Request {
-            adminId?: string;
+            user?: {
+                id: string;
+                role: Role;
+                doctorId?: string;
+            };
+            id?: string;
         }
     }
 }

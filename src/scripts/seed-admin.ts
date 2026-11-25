@@ -1,20 +1,19 @@
-import "dotenv/config";
-
 import mongoose from "mongoose";
 
+import { env } from "../config/env.js";
 import { connectDatabase } from "../config/database.js";
-import { Admin } from "../modules/admins/admin.model.js";
+import { User } from "../modules/users/user.model.js";
 import { hashPassword } from "../utils/password.js";
 
 const seedAdmin = async (): Promise<void> => {
     try {
-        const name = process.env.ADMIN_NAME;
-        const email = process.env.ADMIN_EMAIL?.toLowerCase().trim();
-        const password = process.env.ADMIN_PASSWORD;
+        const name = env.ADMIN_NAME;
+        const email = env.ADMIN_EMAIL?.toLowerCase().trim();
+        const password = env.ADMIN_PASSWORD;
 
         if (!name || !email || !password) {
             throw new Error(
-                "ADMIN_NAME, ADMIN_EMAIL and ADMIN_PASSWORD are required."
+                "ADMIN_NAME, ADMIN_EMAIL and ADMIN_PASSWORD are required in environment."
             );
         }
 
@@ -24,22 +23,25 @@ const seedAdmin = async (): Promise<void> => {
 
         await connectDatabase();
 
-        const existingAdmin = await Admin.findOne({ email });
+        const existingUser = await User.findOne({ email });
 
-        if (existingAdmin) {
-            console.log("An admin with this email already exists.");
+        if (existingUser) {
+            console.log("An admin user with this email already exists.");
             return;
         }
 
         const passwordHash = await hashPassword(password);
 
-        await Admin.create({
+        await User.create({
             name,
             email,
             passwordHash,
+            role: "admin",
+            isActive: true,
+            tokenVersion: 0,
         });
 
-        console.log("Initial admin account created successfully.");
+        console.log("Initial admin user created successfully.");
     } catch (error) {
         console.error("Admin seeding failed:", error);
         process.exitCode = 1;
@@ -48,4 +50,4 @@ const seedAdmin = async (): Promise<void> => {
     }
 };
 
-await seedAdmin();
+seedAdmin();

@@ -1,8 +1,10 @@
-import "dotenv/config";
 import mongoose from "mongoose";
+import { env } from "../config/env.js";
 import { connectDatabase } from "../config/database.js";
 import { Doctor } from "../modules/doctors/doctor.model.js";
 import { Patient } from "../modules/patients/patient.model.js";
+import { User } from "../modules/users/user.model.js";
+import { hashPassword } from "../utils/password.js";
 
 const doctorsData = [
     {
@@ -198,8 +200,7 @@ const seedData = async () => {
         await connectDatabase();
         console.log("Connected to MongoDB for data seeding...");
 
-        // Optional: clean existing doctors and patients for clean fresh state if desired
-        // Or keep existing and just append. Let's see: clearing old non-admin data makes tests consistent.
+        // Clear existing doctors and patients for a clean dataset
         const existingDoctorsCount = await Doctor.countDocuments();
         if (existingDoctorsCount > 0) {
             console.log(`Found ${existingDoctorsCount} existing doctors. Clearing doctors and patients for a clean dataset...`);
@@ -208,7 +209,7 @@ const seedData = async () => {
         }
 
         const now = new Date();
-        const totalDoctorsToCreate = doctorsData.length; // 20 doctors (well within 15-25 range)
+        const totalDoctorsToCreate = doctorsData.length;
         let totalPatientsCreated = 0;
 
         console.log(`Seeding ${totalDoctorsToCreate} doctors with distributed createdAt dates...`);
@@ -221,7 +222,7 @@ const seedData = async () => {
             const doctorCreatedAt = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
             doctorCreatedAt.setHours(randomInt(8, 17), randomInt(0, 59), randomInt(0, 59));
 
-            // Create Doctor document preserving custom createdAt
+            // Create Doctor document preserving custom createdAt and soft-delete fields
             const [doctor] = await Doctor.insertMany(
                 [
                     {
@@ -230,13 +231,15 @@ const seedData = async () => {
                         hospital: docInfo.hospital,
                         phone: docInfo.phone,
                         email: docInfo.email,
+                        isDeleted: false,
+                        deletedAt: null,
                         createdAt: doctorCreatedAt,
                         updatedAt: doctorCreatedAt,
                     },
                 ]
             );
 
-            // Determine number of patients for this doctor: 2 to 5 patients (§requirement: "add 2-5 patients for each of them")
+            // Determine number of patients for this doctor: 2 to 5 patients
             const patientCount = randomInt(2, 5);
             const specialtyConditions = conditionsBySpecialty[docInfo.specialization] || [
                 "Routine Health Exam",
@@ -249,7 +252,7 @@ const seedData = async () => {
             for (let p = 0; p < patientCount; p++) {
                 const firstName = randomItem(patientFirstNames);
                 const lastName = randomItem(patientLastNames);
-                const gender = (["male", "female", "other"] as const)[randomInt(0, 1)]; // mostly male/female
+                const gender = (["male", "female", "other"] as const)[randomInt(0, 1)];
                 const age = randomInt(18, 82);
                 const condition = randomItem(specialtyConditions);
                 const phone = `+1 (555) ${randomInt(100, 999)}-${randomInt(1000, 9999)}`;
@@ -281,6 +284,80 @@ const seedData = async () => {
             );
         }
 
+        // Synchronize and verify indexes
+        console.log("\nSynchronizing indexes...");
+        await Doctor.syncIndexes();
+
+        const activeIndexes = await Doctor.collection.getIndexes();
+        console.log("Verified Doctor Indexes (getIndexes):");
+        console.log(JSON.stringify(activeIndexes, null, 2));
+
+        // Check for duplicate emails among non-deleted doctors
+        const duplicates = await Doctor.aggregate([
+            { $match: { isDeleted: false } },
+            { $group: { _id: "$email", count: { $sum: 1 } } },
+            { $match: { count: { $gt: 1 } } },
+        ]);
+
+        if (duplicates.length > 0) {
+            console.error("Duplicate emails found in seed data:", duplicates);
+        } else {
+            console.log("No duplicate-email failures in seed data. All non-deleted doctor emails are unique.");
+        }
+
+        // Seed role users if environment variables are set
+        if (env.STAFF_EMAIL && env.STAFF_PASSWORD) {
+            const staffEmail = env.STAFF_EMAIL.toLowerCase().trim();
+            const existingStaff = await User.findOne({ email: staffEmail });
+            if (!existingStaff) {
+                await User.create({
+                    name: "Clinic Staff",
+                    email: staffEmail,
+                    passwordHash: await hashPassword(env.STAFF_PASSWORD),
+                    role: "staff",
+                    isActive: true,
+                    tokenVersion: 0,
+                });
+                console.log(`Created staff user: ${staffEmail}`);
+            }
+        }
+
+        if (env.DOCTOR_USER_EMAIL && env.DOCTOR_USER_PASSWORD) {
+            const doctorUserEmail = env.DOCTOR_USER_EMAIL.toLowerCase().trim();
+            const existingDocUser = await User.findOne({ email: doctorUserEmail });
+            if (!existingDocUser) {
+                const firstDoctor = await Doctor.findOne({ isDeleted: false });
+                if (firstDoctor) {
+                    await User.create({
+                        name: firstDoctor.name,
+                        email: doctorUserEmail,
+                        passwordHash: await hashPassword(env.DOCTOR_USER_PASSWORD),
+                        role: "doctor",
+                        doctorId: firstDoctor._id,
+                        isActive: true,
+                        tokenVersion: 0,
+                    });
+                    console.log(`Created doctor user: ${doctorUserEmail} linked to ${firstDoctor.name}`);
+                }
+            }
+        }
+
+        if (env.VIEWER_EMAIL && env.VIEWER_PASSWORD) {
+            const viewerEmail = env.VIEWER_EMAIL.toLowerCase().trim();
+            const existingViewer = await User.findOne({ email: viewerEmail });
+            if (!existingViewer) {
+                await User.create({
+                    name: "Public Demo Viewer",
+                    email: viewerEmail,
+                    passwordHash: await hashPassword(env.VIEWER_PASSWORD),
+                    role: "viewer",
+                    isActive: true,
+                    tokenVersion: 0,
+                });
+                console.log(`Created viewer user: ${viewerEmail}`);
+            }
+        }
+
         console.log("\n==========================================");
         console.log(`Seeding completed successfully!`);
         console.log(`Total Doctors Created:  ${totalDoctorsToCreate}`);
@@ -297,4 +374,3 @@ const seedData = async () => {
 };
 
 seedData();
-
