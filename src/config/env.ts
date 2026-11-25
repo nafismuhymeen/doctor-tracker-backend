@@ -1,6 +1,21 @@
 import "dotenv/config";
 import { z } from "zod";
 
+export const envBool = (defaultValue = false) =>
+    z.preprocess((val) => {
+        if (val === undefined) {
+            return undefined;
+        }
+        if (typeof val === "boolean") {
+            return val;
+        }
+        if (typeof val === "string") {
+            const normalized = val.trim().toLowerCase();
+            return ["true", "1", "yes", "on"].includes(normalized);
+        }
+        return false;
+    }, z.boolean().default(defaultValue));
+
 const envSchema = z
     .object({
         NODE_ENV: z
@@ -43,9 +58,9 @@ const envSchema = z
         AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().optional(),
 
         // Platform & Delivery configuration (Phase 5)
-        ENABLE_DOCS: z.coerce.boolean().default(true),
-        ALLOW_SEED_RESET: z.coerce.boolean().default(false),
-        ALLOW_DEMO_SEED: z.coerce.boolean().default(false),
+        ENABLE_DOCS: envBool(true),
+        ALLOW_SEED_RESET: envBool(false),
+        ALLOW_DEMO_SEED: envBool(false),
 
         // Seed Users configuration
         ADMIN_NAME: z.string().optional(),
