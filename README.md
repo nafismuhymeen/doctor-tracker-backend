@@ -137,9 +137,18 @@ docker compose down -v
 
 ---
 
-### Running with the Frontend
+### Running with the Frontend & Reverse Proxy Configuration
 
 The companion frontend application is hosted in the [doctor-tracker-frontend](https://github.com/nafismuhymeen/doctor-tracker-frontend) repository. The API is designed to sit behind the frontend's same-origin reverse proxy (`COOKIE_SAME_SITE=lax`), ensuring authentication cookies and credentials work seamlessly without third-party cross-origin cookie restrictions.
+
+#### Reverse Proxy Setup (Vercel + Render) & `TRUST_PROXY`:
+In production where the frontend is hosted on **Vercel** (using Next.js `rewrites()` in `next.config.js` to proxy `/api/*` to the backend) and the backend is deployed on **Render**:
+- The incoming HTTP request traverses **two reverse proxy hops**:
+  1. **Vercel Edge Proxy**: Next.js receives the client request and appends/sets `X-Forwarded-For: <client_ip>`.
+  2. **Render Ingress Proxy**: Render's routing layer receives the proxied request from Vercel and appends Vercel's IP: `X-Forwarded-For: <client_ip>, <vercel_proxy_ip>`.
+- **Extracting the Genuine Client IP:**
+  - With default `TRUST_PROXY=1`, Express trusts only the single immediate hop (Render) and reads `<vercel_proxy_ip>` as `req.ip`. Consequently, **all users accessing the app through the Next.js rewrite share the same Vercel IP for rate-limiting**.
+  - **Set `TRUST_PROXY=2` on Render**: This instructs Express to trust both the Render ingress and the Vercel rewrite proxy, traversing 2 hops backward to resolve the authentic `<client_ip>` in `req.ip` for `authRateLimiter` and `generalRateLimiter`.
 
 ---
 
@@ -153,7 +162,7 @@ The companion frontend application is hosted in the [doctor-tracker-frontend](ht
 | `MONGODB_URI` | `string` (URI) | — | Yes | MongoDB connection string |
 | `JWT_SECRET` | `string` (min 32 chars) | — | Yes | Secret key used to sign and verify HMAC-SHA256 JWTs |
 | `COOKIE_SAME_SITE` | `"lax"` \| `"strict"` \| `"none"` | `"lax"` | No | SameSite policy for auth session cookies (`"none"` requires `NODE_ENV=production`) |
-| `TRUST_PROXY` | `number` | `1` | No | Number of reverse proxy hops to trust |
+| `TRUST_PROXY` | `number` | `1` | No | Reverse proxy hops to trust (set `2` for Vercel Next.js rewrite + Render to extract real client IP) |
 | `AUTH_RATE_LIMIT_MAX` | `number` | `10` | No | Max auth requests per 15-minute window per IP |
 | `GENERAL_RATE_LIMIT_MAX` | `number` | `300` | No | Max general API requests per 15-minute window per IP |
 | `ACCESS_TOKEN_TTL_MINUTES` | `number` | `15` | No | Access token expiration duration in minutes |
@@ -342,6 +351,13 @@ Doctor Tracker enforces strict principle-of-least-privilege authorization. The s
 ### 6. Native Zod 4 OpenAPI Specification Generation
 - **Problem:** Maintaining a separate `openapi.yaml` file quickly leads to schema drift between the actual code and documentation. Third-party OpenAPI decorators often bloat controller classes with repetitive annotations.
 - **Solution:** We leveraged Zod 4's native `z.toJSONSchema()` capability in `src/docs/openapi.ts`. By passing custom unrepresentable schema handlers for dates and coercions, our existing request validation schemas directly generate the 100% compliant OpenAPI 3.1 specification served at `/api/openapi.json` and rendered interactively by Swagger UI at `/api/docs`.
+
+### 7. Dual-Layer Brute-Force & Credential Stuffing Defense
+- **Per-IP Rate Limiting:** Enforces `authRateLimiter` (`AUTH_RATE_LIMIT_MAX` requests per 15-minute window, default 10) keyed by `req.ip`.
+- **Account-Level Lockout:** Tracks consecutive failed login attempts on each user record (`failedLoginAttempts`, `lockedUntil`). After 5 consecutive failures, the account is locked for 15 minutes.
+- **Zero Account Enumeration:** While locked, requests return the identical generic 401 `INVALID_CREDENTIALS` (`"Invalid email or password"`) as a wrong password, but completely skip the expensive bcrypt comparison.
+- **Timing-Attack Resistance:** For non-existent emails, a precomputed dummy hash (`DUMMY_HASH`) is compared using bcrypt so timing analysis cannot reveal whether an email is registered.
+- **Auditing & Administrative Recovery:** Security events (`user.lock`, `user.unlock`) are immutably logged. Administrators can unlock locked users via `PATCH /api/v1/users/:id` with `{ unlock: true }`.
 
 ---
 

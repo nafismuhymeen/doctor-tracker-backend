@@ -1,10 +1,12 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import request from "supertest";
 import { app } from "../src/app.js";
 import { createTestUser } from "./helpers/factories.js";
 import { loginAs } from "./helpers/auth.js";
 import { Session } from "../src/modules/auth/session.model.js";
 import { User } from "../src/modules/users/user.model.js";
+import { AuditLog } from "../src/modules/audit/audit.model.js";
+import * as passwordUtils from "../src/utils/password.js";
 
 describe("Auth Module", () => {
     describe("POST /api/v1/auth/login", () => {
@@ -82,6 +84,198 @@ describe("Auth Module", () => {
             expect(res.status).toBe(403);
             expect(res.body.success).toBe(false);
             expect(res.body.code).toBe("ACCOUNT_DISABLED");
+        });
+
+        describe("Account-Level Brute-Force Protection", () => {
+            it("locks account after 5 failed attempts and records audit event", async () => {
+                const { user } = await createTestUser();
+
+                for (let i = 1; i <= 4; i++) {
+                    const res = await request(app)
+                        .post("/api/v1/auth/login")
+                        .send({ email: user.email, password: "WrongPassword!" });
+
+                    expect(res.status).toBe(401);
+                    const dbUser = await User.findById(user._id);
+                    expect(dbUser?.failedLoginAttempts).toBe(i);
+                    expect(dbUser?.lockedUntil).toBeNull();
+                }
+
+                // 5th attempt locks the account
+                const fifthRes = await request(app)
+                    .post("/api/v1/auth/login")
+                    .send({ email: user.email, password: "WrongPassword!" });
+
+                expect(fifthRes.status).toBe(401);
+                const lockedUser = await User.findById(user._id);
+                expect(lockedUser?.failedLoginAttempts).toBe(5);
+                expect(lockedUser?.lockedUntil).toBeInstanceOf(Date);
+                expect(lockedUser!.lockedUntil!.getTime()).toBeGreaterThan(Date.now());
+
+                // Verify audit log for lock
+                const lockAudit = await AuditLog.findOne({
+                    action: "user.lock",
+                    entityId: user.id,
+                });
+                expect(lockAudit).toBeDefined();
+                expect(lockAudit?.action).toBe("user.lock");
+            });
+
+            it("returns identical 401 response while locked without checking password", async () => {
+                const { user, plainPassword } = await createTestUser();
+
+                // 1st attempt failure
+                const firstRes = await request(app)
+                    .post("/api/v1/auth/login")
+                    .send({ email: user.email, password: "WrongPassword!" });
+
+                // Trigger 4 more failures to reach 5
+                for (let i = 0; i < 4; i++) {
+                    await request(app)
+                        .post("/api/v1/auth/login")
+                        .send({ email: user.email, password: "WrongPassword!" });
+                }
+
+                // 6th attempt (while locked)
+                const compareSpy = vi.spyOn(passwordUtils, "comparePassword");
+                const lockedRes = await request(app)
+                    .post("/api/v1/auth/login")
+                    .send({ email: user.email, password: plainPassword });
+
+                // Response must be identical to wrong password
+                expect(lockedRes.status).toBe(firstRes.status);
+                expect(lockedRes.body).toEqual(firstRes.body);
+                expect(lockedRes.body.code).toBe("INVALID_CREDENTIALS");
+                expect(lockedRes.body.message).toBe("Invalid email or password");
+
+                // comparePassword must NOT have been called while locked
+                expect(compareSpy).not.toHaveBeenCalled();
+                compareSpy.mockRestore();
+            });
+
+            it("runs dummy bcrypt compare for non-existent emails to prevent timing attacks", async () => {
+                const compareSpy = vi.spyOn(passwordUtils, "comparePassword");
+
+                const res = await request(app)
+                    .post("/api/v1/auth/login")
+                    .send({
+                        email: "completely-unknown-user@test.com",
+                        password: "SomePassword123!",
+                    });
+
+                expect(res.status).toBe(401);
+                expect(res.body.code).toBe("INVALID_CREDENTIALS");
+                expect(compareSpy).toHaveBeenCalled();
+                compareSpy.mockRestore();
+            });
+
+            it("resets failedLoginAttempts counter on successful login", async () => {
+                const { user, plainPassword } = await createTestUser();
+
+                // Fail 3 times
+                for (let i = 0; i < 3; i++) {
+                    await request(app)
+                        .post("/api/v1/auth/login")
+                        .send({ email: user.email, password: "WrongPassword!" });
+                }
+
+                const failedUser = await User.findById(user._id);
+                expect(failedUser?.failedLoginAttempts).toBe(3);
+
+                // Now log in successfully with correct password
+                const successRes = await request(app)
+                    .post("/api/v1/auth/login")
+                    .send({ email: user.email, password: plainPassword });
+
+                expect(successRes.status).toBe(200);
+
+                const resetUser = await User.findById(user._id);
+                expect(resetUser?.failedLoginAttempts).toBe(0);
+                expect(resetUser?.lockedUntil).toBeNull();
+            });
+
+            it("allows login after 15 minutes lockout expiry using fake timers", async () => {
+                const { user, plainPassword } = await createTestUser();
+
+                // Lock the account with 5 failed attempts
+                for (let i = 0; i < 5; i++) {
+                    await request(app)
+                        .post("/api/v1/auth/login")
+                        .send({ email: user.email, password: "WrongPassword!" });
+                }
+
+                const lockedUser = await User.findById(user._id);
+                expect(lockedUser?.lockedUntil).toBeInstanceOf(Date);
+
+                // Use fake timers to advance beyond 15 minutes
+                vi.useFakeTimers();
+                const futureTime = new Date(Date.now() + 15 * 60 * 1000 + 1000);
+                vi.setSystemTime(futureTime);
+
+                try {
+                    const loginRes = await request(app)
+                        .post("/api/v1/auth/login")
+                        .send({ email: user.email, password: plainPassword });
+
+                    expect(loginRes.status).toBe(200);
+                    expect(loginRes.body.success).toBe(true);
+
+                    const unlockedUser = await User.findById(user._id);
+                    expect(unlockedUser?.failedLoginAttempts).toBe(0);
+                    expect(unlockedUser?.lockedUntil).toBeNull();
+
+                    // Verify unlock audit log recorded
+                    const unlockAudit = await AuditLog.findOne({
+                        action: "user.unlock",
+                        entityId: user.id,
+                    });
+                    expect(unlockAudit).toBeDefined();
+                } finally {
+                    vi.useRealTimers();
+                }
+            });
+
+            it("allows admin to unlock a locked account via PATCH /api/v1/users/:id", async () => {
+                const { user, plainPassword } = await createTestUser({ role: "staff" });
+
+                // Lock user with 5 failed attempts
+                for (let i = 0; i < 5; i++) {
+                    await request(app)
+                        .post("/api/v1/auth/login")
+                        .send({ email: user.email, password: "WrongPassword!" });
+                }
+
+                const lockedUser = await User.findById(user._id);
+                expect(lockedUser?.failedLoginAttempts).toBe(5);
+                expect(lockedUser?.lockedUntil).toBeInstanceOf(Date);
+
+                // Admin unlocks user
+                const { agent: adminAgent } = await loginAs("admin");
+                const patchRes = await adminAgent
+                    .patch(`/api/v1/users/${user.id}`)
+                    .send({ unlock: true });
+
+                expect(patchRes.status).toBe(200);
+
+                const unlockedUser = await User.findById(user._id);
+                expect(unlockedUser?.failedLoginAttempts).toBe(0);
+                expect(unlockedUser?.lockedUntil).toBeNull();
+
+                // Verify unlock audit log created
+                const unlockAudit = await AuditLog.findOne({
+                    action: "user.unlock",
+                    entityId: user.id,
+                });
+                expect(unlockAudit).toBeDefined();
+
+                // User can now log in immediately
+                const loginRes = await request(app)
+                    .post("/api/v1/auth/login")
+                    .send({ email: user.email, password: plainPassword });
+
+                expect(loginRes.status).toBe(200);
+                expect(loginRes.body.success).toBe(true);
+            });
         });
     });
 

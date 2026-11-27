@@ -11,6 +11,8 @@ export interface IUser extends Document {
     isActive: boolean;
     tokenVersion: number;
     lastLoginAt?: Date;
+    failedLoginAttempts: number;
+    lockedUntil?: Date | null;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -57,6 +59,15 @@ const userSchema = new Schema<IUser>(
             required: true,
         },
         lastLoginAt: {
+            type: Date,
+            default: null,
+        },
+        failedLoginAttempts: {
+            type: Number,
+            default: 0,
+            required: true,
+        },
+        lockedUntil: {
             type: Date,
             default: null,
         },

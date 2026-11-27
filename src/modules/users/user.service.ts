@@ -213,6 +213,12 @@ class UserService {
             targetUser.isActive = input.isActive;
         }
 
+        const unlocked = input.unlock === true;
+        if (unlocked) {
+            targetUser.failedLoginAttempts = 0;
+            targetUser.lockedUntil = null;
+        }
+
         // Handle doctorId logic
         const effectiveRole = input.role !== undefined ? input.role : targetUser.role;
 
@@ -265,6 +271,15 @@ class UserService {
         if (deactivated) {
             await auditService.record({
                 action: "user.deactivate",
+                entityType: "User",
+                entityId: targetUser.id,
+                outcome: "success",
+            });
+        }
+
+        if (unlocked) {
+            await auditService.record({
+                action: "user.unlock",
                 entityType: "User",
                 entityId: targetUser.id,
                 outcome: "success",

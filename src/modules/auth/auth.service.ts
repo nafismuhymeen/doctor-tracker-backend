@@ -60,6 +60,42 @@ class AuthService {
             );
         }
 
+        const currentTime = new Date();
+
+        // 1. Check if account is currently locked
+        if (user.lockedUntil && user.lockedUntil > currentTime) {
+            // Do NOT check password while locked
+            await auditService.record({
+                action: "auth.login.failure",
+                entityType: "Auth",
+                entityId: user.id,
+                outcome: "failure",
+                reason: "Account locked",
+                actor: { id: user.id, role: user.role, email: user.email },
+            });
+            throw new ApiError(
+                "Invalid email or password",
+                401,
+                true,
+                "INVALID_CREDENTIALS"
+            );
+        }
+
+        // 2. If lockout expired, reset lockout and record unlock event
+        if (user.lockedUntil && user.lockedUntil <= currentTime) {
+            user.lockedUntil = null;
+            user.failedLoginAttempts = 0;
+            await user.save();
+            await auditService.record({
+                action: "user.unlock",
+                entityType: "User",
+                entityId: user.id,
+                outcome: "success",
+                reason: "Lockout period expired",
+                actor: { id: user.id, role: user.role, email: user.email },
+            });
+        }
+
         if (!user.isActive) {
             await auditService.record({
                 action: "auth.login.failure",
@@ -83,6 +119,24 @@ class AuthService {
         );
 
         if (!isPasswordValid) {
+            user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
+
+            if (user.failedLoginAttempts >= 5) {
+                user.lockedUntil = new Date(Date.now() + 15 * 60 * 1000);
+                await user.save();
+
+                await auditService.record({
+                    action: "user.lock",
+                    entityType: "User",
+                    entityId: user.id,
+                    outcome: "failure",
+                    reason: "Account locked due to 5 consecutive failed login attempts",
+                    actor: { id: user.id, role: user.role, email: user.email },
+                });
+            } else {
+                await user.save();
+            }
+
             await auditService.record({
                 action: "auth.login.failure",
                 entityType: "Auth",
@@ -99,7 +153,9 @@ class AuthService {
             );
         }
 
-        // Update last login timestamp
+        // Reset failed login attempts and lockout on successful login
+        user.failedLoginAttempts = 0;
+        user.lockedUntil = null;
         user.lastLoginAt = new Date();
         await user.save();
 

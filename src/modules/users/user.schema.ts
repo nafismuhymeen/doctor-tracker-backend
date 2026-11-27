@@ -49,6 +49,7 @@ export const updateUserSchema = z
         role: roleEnum.optional(),
         isActive: z.boolean().optional(),
         doctorId: z.string().trim().nullable().optional(),
+        unlock: z.boolean().optional(),
     })
     .refine((data) => Object.keys(data).length > 0, {
         message: "At least one field must be provided for update",
